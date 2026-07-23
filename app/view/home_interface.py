@@ -175,7 +175,7 @@ class HomeInterface(ScrollArea):
             '手势控制播放，轻松享受影视内容',
             self.view
         )
-        movieCard.clicked.connect(lambda: print('追剧模式'))
+        movieCard.clicked.connect(lambda: signalBus.switchToMultimedia.emit())
         rightColumn.addWidget(movieCard)
 
         gridLayout.addLayout(leftColumn, 1)

@@ -25,6 +25,9 @@ from ..sdk import ring_sound as sdk
 # Imported by MeetingInterface to register packet handlers for ring button events.
 shared_client = None
 
+# Shared persistent event loop thread — used by sensor interface and other pages.
+async_loop_thread = None
+
 
 # ── Persistent async loop thread ─────────────────────────────────
 
@@ -73,7 +76,13 @@ class AsyncLoopThread(QThread):
 # ── BLE Worker Threads ───────────────────────────────────────────
 
 class ScanThread(QThread):
-    """Continuous scan thread: runs short scan cycles and emits devices in real-time."""
+    """Continuous scan thread: runs short scan cycles and emits devices in real-time.
+
+    Note: On Windows the bleak/winrt scanner needs a thread with a COM apartment
+    that supports BluetoothLEAdvertisementWatcher. We therefore run each scan
+    cycle with asyncio.run() in this dedicated QThread rather than reusing the
+    persistent AsyncLoopThread.
+    """
     devicesUpdated = pyqtSignal(list)  # full accumulated list
     scanFinished = pyqtSignal(list)    # final list
     error = pyqtSignal(str)
@@ -81,9 +90,8 @@ class ScanThread(QThread):
     CYCLE_S = 5.0       # each scan cycle duration
     MAX_S = 60.0        # max total scan time
 
-    def __init__(self, loop_thread, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self._loop_thread = loop_thread
         self._stop_flag = False
 
     def stop(self):
@@ -95,8 +103,7 @@ class ScanThread(QThread):
             start = time.monotonic()
 
             while not self._stop_flag and (time.monotonic() - start) < self.MAX_S:
-                devices = self._loop_thread.run_coro(
-                    sdk.scan_rings(timeout_s=self.CYCLE_S), timeout=self.CYCLE_S + 5)
+                devices = asyncio.run(sdk.scan_rings(timeout_s=self.CYCLE_S))
                 if self._stop_flag:
                     break
 
@@ -338,6 +345,9 @@ class ConnectInterface(ScrollArea):
         self._asyncLoopThread = AsyncLoopThread(self)
         self._asyncLoopThread.start()
 
+        global async_loop_thread
+        async_loop_thread = self._asyncLoopThread
+
         self.__initWidget()
 
     def __initWidget(self):
@@ -397,7 +407,7 @@ class ConnectInterface(ScrollArea):
         self.deviceListView.addWidget(self.emptyLabel)
         self.deviceCountLabel.setVisible(False)
 
-        self._scanThread = ScanThread(self._asyncLoopThread, parent=self)
+        self._scanThread = ScanThread(parent=self)
         self._scanThread.devicesUpdated.connect(self.__onDevicesUpdated)
         self._scanThread.scanFinished.connect(self.__onScanFinished)
         self._scanThread.error.connect(self.__onScanError)

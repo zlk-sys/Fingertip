@@ -12,6 +12,8 @@ from .home_interface import HomeInterface
 from .connect_interface import ConnectInterface
 from .device_info_interface import DeviceInfoInterface
 from .meeting_interface import MeetingInterface
+from .multimedia_interface import MultimediaInterface
+from .sensor_interface import SensorInterface
 from .basic_interface import BasicInterface
 from .setting_interface import SettingInterface
 from ..common.config import cfg
@@ -32,6 +34,8 @@ class MainWindow(FluentWindow):
         self.connectInterface = ConnectInterface(self)
         self.deviceInfoInterface = DeviceInfoInterface(self)
         self.meetingInterface = MeetingInterface(self)
+        self.multimediaInterface = MultimediaInterface(self)
+        self.sensorInterface = SensorInterface(self)
         self.basicInterface = BasicInterface(self)
         self.settingInterface = SettingInterface(self)
 
@@ -51,6 +55,8 @@ class MainWindow(FluentWindow):
         signalBus.micaEnableChanged.connect(self.setMicaEffectEnabled)
         signalBus.switchToMeeting.connect(
             lambda: self.switchTo(self.meetingInterface))
+        signalBus.switchToMultimedia.connect(
+            lambda: self.switchTo(self.multimediaInterface))
 
     def initNavigation(self):
         # add navigation items
@@ -58,6 +64,8 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.connectInterface, FIF.CONNECT, self.tr('连接戒指'))
         self.addSubInterface(self.deviceInfoInterface, FIF.PHONE, self.tr('设备'))
         self.addSubInterface(self.meetingInterface, FIF.MUTE, self.tr('会议模式'))
+        self.addSubInterface(self.multimediaInterface, FIF.VIDEO, self.tr('追剧模式'))
+        self.addSubInterface(self.sensorInterface, FIF.MOVE, self.tr('传感器'))
 
         self.navigationInterface.addSeparator()
 

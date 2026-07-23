@@ -14,6 +14,9 @@ KEYEVENTF_SCANCODE = 0x0008
 
 VK_RIGHT = 0x27
 VK_LEFT = 0x25
+VK_MEDIA_PLAY_PAUSE = 0xB3
+VK_MEDIA_NEXT_TRACK = 0xB0
+VK_MEDIA_PREV_TRACK = 0xB1
 
 # SendInput type definitions
 wintypes.ULONG_PTR = wintypes.WPARAM
@@ -80,3 +83,18 @@ def next_slide() -> None:
 def previous_slide() -> None:
     """Send Left arrow key to go back to previous slide."""
     press_key(VK_LEFT)
+
+
+def toggle_play_pause() -> None:
+    """Send Play/Pause media key to toggle playback of the active media player."""
+    press_key(VK_MEDIA_PLAY_PAUSE)
+
+
+def next_track() -> None:
+    """Send Next Track media key."""
+    press_key(VK_MEDIA_NEXT_TRACK)
+
+
+def previous_track() -> None:
+    """Send Previous Track media key."""
+    press_key(VK_MEDIA_PREV_TRACK)
