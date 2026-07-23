@@ -1,5 +1,5 @@
 # coding: utf-8
-from PyQt5.QtCore import Qt, QRectF
+from PyQt5.QtCore import Qt, QRectF, pyqtSignal
 from PyQt5.QtGui import QPixmap, QPainter, QColor, QBrush, QPainterPath, QLinearGradient
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame
 
@@ -20,7 +20,7 @@ class BannerWidget(QWidget):
 
         self.vBoxLayout = QVBoxLayout(self)
         self.titleLabel = TitleLabel('Fingertip', self)
-        self.subtitleLabel = BodyLabel('基于 PyQt5 的 Fluent Design 风格应用', self)
+        self.subtitleLabel = BodyLabel('指尖控万物', self)
 
         self.vBoxLayout.setSpacing(0)
         self.vBoxLayout.setContentsMargins(36, 40, 36, 20)
@@ -60,35 +60,40 @@ class BannerWidget(QWidget):
         painter.fillPath(path, QBrush(gradient))
 
 
-class FeatureCard(SimpleCardWidget):
-    """ Feature card widget """
+class ModeCard(SimpleCardWidget):
+    """ Mode card widget - large clickable card """
 
-    def __init__(self, icon, title, content, parent=None):
+    clicked = pyqtSignal()
+
+    def __init__(self, icon, title, subtitle, parent=None):
         super().__init__(parent=parent)
         self.iconWidget = IconWidget(icon, self)
         self.titleLabel = StrongBodyLabel(title, self)
-        self.contentLabel = CaptionLabel(content, self)
+        self.subtitleLabel = CaptionLabel(subtitle, self)
 
-        self.hBoxLayout = QHBoxLayout(self)
-        self.vBoxLayout = QVBoxLayout()
+        self.vBoxLayout = QVBoxLayout(self)
 
         self.__initWidget()
 
     def __initWidget(self):
-        self.iconWidget.setFixedSize(36, 36)
-        self.contentLabel.setTextColor(QColor(96, 96, 96), QColor(216, 216, 216))
+        self.setObjectName('modeCard')
+        self.setMinimumHeight(140)
+        self.setCursor(Qt.PointingHandCursor)
 
-        self.hBoxLayout.setSpacing(16)
-        self.hBoxLayout.setContentsMargins(20, 20, 20, 20)
-        self.hBoxLayout.addWidget(self.iconWidget)
-        self.hBoxLayout.addLayout(self.vBoxLayout)
-        self.hBoxLayout.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        self.iconWidget.setFixedSize(48, 48)
+        self.subtitleLabel.setTextColor(QColor(96, 96, 96), QColor(216, 216, 216))
 
-        self.vBoxLayout.setSpacing(4)
-        self.vBoxLayout.setContentsMargins(0, 0, 0, 0)
+        self.vBoxLayout.setSpacing(8)
+        self.vBoxLayout.setContentsMargins(24, 24, 24, 24)
+        self.vBoxLayout.addWidget(self.iconWidget)
+        self.vBoxLayout.addSpacing(4)
         self.vBoxLayout.addWidget(self.titleLabel)
-        self.vBoxLayout.addWidget(self.contentLabel)
-        self.vBoxLayout.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        self.vBoxLayout.addWidget(self.subtitleLabel)
+        self.vBoxLayout.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+
+    def mouseReleaseEvent(self, e):
+        super().mouseReleaseEvent(e)
+        self.clicked.emit()
 
 
 class HomeInterface(ScrollArea):
@@ -101,7 +106,7 @@ class HomeInterface(ScrollArea):
         self.vBoxLayout = QVBoxLayout(self.view)
 
         self.__initWidget()
-        self.__loadFeatures()
+        self.__loadModeCards()
 
     def __initWidget(self):
         self.view.setObjectName('view')
@@ -113,49 +118,66 @@ class HomeInterface(ScrollArea):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setWidget(self.view)
         self.setWidgetResizable(True)
+        self.enableTransparentBackground()
 
         self.vBoxLayout.setContentsMargins(0, 0, 0, 36)
         self.vBoxLayout.setSpacing(20)
         self.vBoxLayout.addWidget(self.banner)
         self.vBoxLayout.setAlignment(Qt.AlignTop)
 
-    def __loadFeatures(self):
-        """ Load feature cards """
-        # Section title
-        sectionLabel = StrongBodyLabel('功能特性', self.view)
-        sectionLabel.setContentsMargins(36, 0, 0, 0)
-        self.vBoxLayout.addWidget(sectionLabel)
+    def __loadModeCards(self):
+        """ Load mode cards """
+        # 2x2 grid container
+        gridWidget = QWidget(self.view)
+        gridLayout = QHBoxLayout(gridWidget)
+        gridLayout.setSpacing(16)
+        gridLayout.setContentsMargins(36, 0, 36, 0)
 
-        # Feature cards container
-        cardsWidget = QWidget(self.view)
-        cardsLayout = QVBoxLayout(cardsWidget)
-        cardsLayout.setSpacing(12)
-        cardsLayout.setContentsMargins(36, 0, 36, 0)
+        # Left column
+        leftColumn = QVBoxLayout()
+        leftColumn.setSpacing(16)
 
-        cardsLayout.addWidget(FeatureCard(
-            FluentIcon.LAYOUT,
-            'FluentWindow 主窗口',
-            '使用 FluentWindow 构建带有侧边导航栏的主窗口，支持明暗主题切换。'
-        ))
-        cardsLayout.addWidget(FeatureCard(
-            FluentIcon.CHECKBOX,
-            '丰富的基础组件',
-            '按钮、复选框、单选按钮、滑块、开关、下拉框等 Fluent 风格组件。'
-        ))
-        cardsLayout.addWidget(FeatureCard(
-            FluentIcon.PALETTE,
-            '主题与个性化',
-            '支持浅色/深色/跟随系统主题，可自定义主题颜色，云母/亚克力效果。'
-        ))
-        cardsLayout.addWidget(FeatureCard(
-            FluentIcon.SETTING,
-            '完整的设置界面',
-            '内置 SettingCard 系列组件，轻松搭建专业的应用设置页面。'
-        ))
-        cardsLayout.addWidget(FeatureCard(
-            FluentIcon.MESSAGE,
-            '对话框与提示',
-            '消息对话框、气泡弹窗、教学提示、信息栏等丰富的交互组件。'
-        ))
+        connectCard = ModeCard(
+            FluentIcon.CONNECT,
+            '连接戒指',
+            '连接智能戒指，查看设备状态与数据',
+            self.view
+        )
+        connectCard.clicked.connect(lambda: print('连接戒指'))
+        leftColumn.addWidget(connectCard)
 
-        self.vBoxLayout.addWidget(cardsWidget)
+        sleepCard = ModeCard(
+            FluentIcon.POWER_BUTTON,
+            '睡眠模式',
+            '开启睡眠监测，自动记录睡眠数据',
+            self.view
+        )
+        sleepCard.clicked.connect(lambda: print('睡眠模式'))
+        leftColumn.addWidget(sleepCard)
+
+        # Right column
+        rightColumn = QVBoxLayout()
+        rightColumn.setSpacing(16)
+
+        meetingCard = ModeCard(
+            FluentIcon.MUTE,
+            '会议模式',
+            '静音通知，专注会议不被打扰',
+            self.view
+        )
+        meetingCard.clicked.connect(lambda: print('会议模式'))
+        rightColumn.addWidget(meetingCard)
+
+        movieCard = ModeCard(
+            FluentIcon.VIDEO,
+            '追剧模式',
+            '手势控制播放，轻松享受影视内容',
+            self.view
+        )
+        movieCard.clicked.connect(lambda: print('追剧模式'))
+        rightColumn.addWidget(movieCard)
+
+        gridLayout.addLayout(leftColumn, 1)
+        gridLayout.addLayout(rightColumn, 1)
+
+        self.vBoxLayout.addWidget(gridWidget)

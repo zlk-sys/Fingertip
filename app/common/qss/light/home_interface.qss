@@ -1,8 +1,25 @@
-SettingInterface, #scrollWidget {
+HomeInterface, #view {
     background-color: transparent;
 }
 
 QScrollArea {
     background-color: transparent;
     border: none;
+}
+
+#titleLabel {
+    color: black;
+    font-size: 30px;
+    font-weight: bold;
+}
+
+#subtitleLabel {
+    color: rgba(0, 0, 0, 150);
+    font-size: 14px;
+}
+
+#modeCard {
+    background-color: white;
+    border: 1px solid rgba(0, 0, 0, 16);
+    border-radius: 8px;
 }

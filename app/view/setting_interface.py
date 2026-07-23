@@ -131,6 +131,7 @@ class SettingInterface(ScrollArea):
         self.setViewportMargins(0, 80, 0, 20)
         self.setWidget(self.scrollWidget)
         self.setWidgetResizable(True)
+        self.enableTransparentBackground()
         self.setObjectName('settingInterface')
 
         self.scrollWidget.setObjectName('scrollWidget')

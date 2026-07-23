@@ -49,6 +49,7 @@ class BasicInterface(ScrollArea):
         self.setViewportMargins(0, 80, 0, 20)
         self.setWidget(self.scrollWidget)
         self.setWidgetResizable(True)
+        self.enableTransparentBackground()
 
         self.scrollWidget.setObjectName('scrollWidget')
         self.titleLabel.setObjectName('titleLabel')
