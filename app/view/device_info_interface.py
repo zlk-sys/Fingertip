@@ -300,10 +300,11 @@ class DeviceInfoInterface(ScrollArea):
         avail = getattr(info, 'audio_storage_available', 0)
         used = max(0, total - avail)
         percent = (used / total * 100) if total else 0
-        total_kb = total // 1024
-        used_kb = used // 1024
+        mb = 1024 * 1024
+        total_mb = total / mb
+        used_mb = used / mb
         self.storageCard.setValue(
-            f'{used_kb}', f'/ {total_kb}MB', min(100, percent))
+            f'{used_mb:.1f}', f'/ {total_mb:.1f} MB', min(100, percent))
 
         self.firmwareCard.setValue(getattr(info, 'firmware_version', '--'))
         self.modelCard.setValue(getattr(info, 'model', '--'))
