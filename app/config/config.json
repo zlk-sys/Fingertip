@@ -1,0 +1,25 @@
+{
+    "Material": {
+        "AcrylicBlurRadius": 12
+    },
+    "Update": {
+        "CheckUpdateAtStartUp": true
+    },
+    "Folders": {
+        "Download": "D:/Fingertip/app/download"
+    },
+    "MainWindow": {
+        "DpiScale": "Auto",
+        "Language": "Auto",
+        "MicaEnabled": true
+    },
+    "QFluentWidgets": {
+        "FontFamilies": [
+            "Segoe UI",
+            "Microsoft YaHei",
+            "PingFang SC"
+        ],
+        "ThemeColor": "#ff009faa",
+        "ThemeMode": "Auto"
+    }
+}
