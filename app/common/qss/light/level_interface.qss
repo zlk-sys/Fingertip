@@ -1,0 +1,16 @@
+LevelInterface, #view {
+    background-color: transparent;
+}
+
+QScrollArea {
+    background-color: transparent;
+    border: none;
+}
+
+#levelStatusLabel[active="true"] {
+    color: #00a854;
+}
+
+#levelStatusLabel[active="false"] {
+    color: #5c5c5c;
+}

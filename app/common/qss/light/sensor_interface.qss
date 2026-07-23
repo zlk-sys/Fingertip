@@ -1,0 +1,16 @@
+SensorInterface, #view {
+    background-color: transparent;
+}
+
+QScrollArea {
+    background-color: transparent;
+    border: none;
+}
+
+#sensorStatusLabel[active="true"] {
+    color: #00a854;
+}
+
+#sensorStatusLabel[active="false"] {
+    color: #5c5c5c;
+}
