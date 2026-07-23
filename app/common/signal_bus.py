@@ -15,4 +15,7 @@ class SignalBus(QObject):
     systemInfoReceived = pyqtSignal(object)
     refreshSystemInfoRequested = pyqtSignal()
 
+    # navigation
+    switchToMeeting = pyqtSignal()
+
 signalBus = SignalBus()

@@ -11,6 +11,7 @@ from qfluentwidgets import FluentIcon as FIF
 from .home_interface import HomeInterface
 from .connect_interface import ConnectInterface
 from .device_info_interface import DeviceInfoInterface
+from .meeting_interface import MeetingInterface
 from .basic_interface import BasicInterface
 from .setting_interface import SettingInterface
 from ..common.config import cfg
@@ -30,6 +31,7 @@ class MainWindow(FluentWindow):
         self.homeInterface = HomeInterface(self)
         self.connectInterface = ConnectInterface(self)
         self.deviceInfoInterface = DeviceInfoInterface(self)
+        self.meetingInterface = MeetingInterface(self)
         self.basicInterface = BasicInterface(self)
         self.settingInterface = SettingInterface(self)
 
@@ -47,12 +49,15 @@ class MainWindow(FluentWindow):
 
     def connectSignalToSlot(self):
         signalBus.micaEnableChanged.connect(self.setMicaEffectEnabled)
+        signalBus.switchToMeeting.connect(
+            lambda: self.switchTo(self.meetingInterface))
 
     def initNavigation(self):
         # add navigation items
         self.addSubInterface(self.homeInterface, FIF.HOME, self.tr('首页'))
         self.addSubInterface(self.connectInterface, FIF.CONNECT, self.tr('连接戒指'))
         self.addSubInterface(self.deviceInfoInterface, FIF.PHONE, self.tr('设备'))
+        self.addSubInterface(self.meetingInterface, FIF.MUTE, self.tr('会议模式'))
 
         self.navigationInterface.addSeparator()
 

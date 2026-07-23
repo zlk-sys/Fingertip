@@ -9,6 +9,7 @@ from qfluentwidgets import (ScrollArea, isDarkTheme, FluentIcon, PushButton,
                             PrimaryPushButton, PillPushButton, HyperlinkButton)
 
 from ..common.style_sheet import StyleSheet
+from ..common.signal_bus import signalBus
 
 
 class BannerWidget(QWidget):
@@ -165,7 +166,7 @@ class HomeInterface(ScrollArea):
             '静音通知，专注会议不被打扰',
             self.view
         )
-        meetingCard.clicked.connect(lambda: print('会议模式'))
+        meetingCard.clicked.connect(lambda: signalBus.switchToMeeting.emit())
         rightColumn.addWidget(meetingCard)
 
         movieCard = ModeCard(

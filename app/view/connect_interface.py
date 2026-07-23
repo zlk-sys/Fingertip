@@ -21,6 +21,10 @@ from ..common.style_sheet import StyleSheet
 from ..common.signal_bus import signalBus
 from ..sdk import ring_sound as sdk
 
+# Shared client reference — set by ConnectInterface after successful connection.
+# Imported by MeetingInterface to register packet handlers for ring button events.
+shared_client = None
+
 
 # ── Persistent async loop thread ─────────────────────────────────
 
@@ -517,6 +521,10 @@ class ConnectInterface(ScrollArea):
         self.disconnectBtn.setEnabled(True)
         self.scanBtn.setEnabled(True)
 
+        # Share client globally for meeting mode
+        global shared_client
+        shared_client = client
+
         InfoBar.success('连接成功', '戒指已连接',
                         parent=self.window(), duration=2000,
                         position=InfoBarPosition.TOP_RIGHT)
@@ -558,6 +566,11 @@ class ConnectInterface(ScrollArea):
         self.statusLabel.setText('未连接')
         self.disconnectBtn.setEnabled(False)
         self.deviceInfoCard.reset()
+
+        # Clear shared client
+        global shared_client
+        shared_client = None
+
         signalBus.deviceDisconnected.emit()
         InfoBar.info('已断开', '戒指已断开连接',
                      parent=self.window(), duration=2000,

@@ -1,0 +1,35 @@
+MeetingInterface, #view {
+    background-color: transparent;
+}
+
+QScrollArea {
+    background-color: transparent;
+    border: none;
+}
+
+#meetingStatusLabel[active="true"] {
+    color: #4dcb66;
+}
+
+#meetingStatusLabel[active="false"] {
+    color: #8a8a8a;
+}
+
+#eventLogCard {
+    background-color: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+}
+
+#eventItem {
+    background-color: transparent;
+    padding: 4px 0px;
+}
+
+#eventTimeLabel {
+    color: #8a8a8a;
+}
+
+#eventActionLabel {
+    color: #d0d0d0;
+}
