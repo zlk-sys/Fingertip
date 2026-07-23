@@ -1,0 +1,48 @@
+DeviceInfoInterface, #view {
+    background-color: transparent;
+}
+
+QScrollArea {
+    background-color: transparent;
+    border: none;
+}
+
+#deviceNameLabel {
+    font-size: 28px;
+    font-weight: bold;
+    background-color: transparent;
+}
+
+#deviceStatusLabel {
+    color: #9c9c9c;
+    background-color: transparent;
+}
+
+#deviceStatusLabel[connected="true"] {
+    color: #00b42a;
+}
+
+#deviceImageWidget {
+    background-color: #f0f0f0;
+    border: 2px solid #e0e0e0;
+    border-radius: 16px;
+}
+
+#alertBanner {
+    background-color: #ffeded;
+    border: 1px solid #ffd4d4;
+}
+
+#alertBanner BodyLabel {
+    color: #cf1322;
+    background-color: transparent;
+}
+
+#reconnectBtn {
+    color: #cf1322;
+}
+
+#detailSectionLabel {
+    background-color: transparent;
+    margin-top: 8px;
+}

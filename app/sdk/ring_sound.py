@@ -21,7 +21,7 @@ import subprocess
 import time
 from typing import Any, DefaultDict
 
-__version__ = "0.3.4"
+__version__ = "0.4.0"
 
 NUS_SERVICE_UUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 NUS_TX_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
@@ -29,6 +29,7 @@ NUS_RX_UUID = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
 
 DEFAULT_SCAN_TIMEOUT_S = 8.0
 DEFAULT_COMMAND_TIMEOUT_S = 10.0
+_NUS_WRITE_CHUNK_SIZE = 20
 
 DEFAULT_SAMPLE_RATE = 16000
 DEFAULT_CHANNELS = 1
@@ -555,7 +556,6 @@ class NusClient:
         rx_uuid: str = NUS_RX_UUID,
         scan_timeout_s: float = DEFAULT_SCAN_TIMEOUT_S,
         write_with_response: bool = False,
-        write_chunk_size: int | None = None,
     ) -> None:
         self.address = address
         self.service_uuid = service_uuid
@@ -563,7 +563,6 @@ class NusClient:
         self.rx_uuid = rx_uuid
         self.scan_timeout_s = scan_timeout_s
         self.write_with_response = write_with_response
-        self.write_chunk_size = write_chunk_size
         self._client: Any | None = None
         self._rx_callback: RxCallback | None = None
         self._disconnect_callback: DisconnectCallback | None = None
@@ -654,9 +653,8 @@ class NusClient:
             raise TransportError("BLE client is not connected")
 
         payload = bytes(data)
-        chunk_size = self._resolve_chunk_size()
-        for offset in range(0, len(payload), chunk_size):
-            chunk = payload[offset : offset + chunk_size]
+        for offset in range(0, len(payload), _NUS_WRITE_CHUNK_SIZE):
+            chunk = payload[offset : offset + _NUS_WRITE_CHUNK_SIZE]
             await self._client.write_gatt_char(
                 self.rx_uuid,
                 chunk,
@@ -670,22 +668,6 @@ class NusClient:
 
     async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
         await self.disconnect()
-
-    def _resolve_chunk_size(self) -> int:
-        if self.write_chunk_size:
-            return max(1, self.write_chunk_size)
-        if self._client is None:
-            return 20
-
-        try:
-            char = self._client.services.get_characteristic(self.rx_uuid)
-        except Exception:
-            char = None
-
-        max_without_response = getattr(char, "max_write_without_response_size", None)
-        if isinstance(max_without_response, int) and max_without_response > 0:
-            return max_without_response
-        return 20
 
     def _handle_notify(self, _sender: Any, data: bytearray) -> None:
         callback = self._rx_callback

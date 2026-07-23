@@ -11,6 +11,7 @@ class StyleSheet(StyleSheetBase, Enum):
     BASIC_INTERFACE = "basic_interface"
     SETTING_INTERFACE = "setting_interface"
     CONNECT_INTERFACE = "connect_interface"
+    DEVICE_INFO_INTERFACE = "device_info_interface"
 
     def path(self, theme=Theme.AUTO):
         theme = qconfig.theme if theme == Theme.AUTO else theme

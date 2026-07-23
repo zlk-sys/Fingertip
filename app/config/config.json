@@ -1,6 +1,6 @@
 {
     "Material": {
-        "AcrylicBlurRadius": 12
+        "AcrylicBlurRadius": 11
     },
     "Update": {
         "CheckUpdateAtStartUp": true
@@ -19,7 +19,7 @@
             "Microsoft YaHei",
             "PingFang SC"
         ],
-        "ThemeColor": "#ff009faa",
+        "ThemeColor": "#ff1556aa",
         "ThemeMode": "Light"
     }
 }

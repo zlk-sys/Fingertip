@@ -1,5 +1,6 @@
 # coding: utf-8
 import asyncio
+import threading
 import time
 
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
@@ -17,10 +18,55 @@ from qfluentwidgets import (ScrollArea, ExpandLayout, FluentIcon, setFont,
 from qfluentwidgets import FluentIcon as FIF
 
 from ..common.style_sheet import StyleSheet
+from ..common.signal_bus import signalBus
 from ..sdk import ring_sound as sdk
 
 
-# ── BLE Worker Threads ──────────────────────────────────────────
+# ── Persistent async loop thread ─────────────────────────────────
+
+class AsyncLoopThread(QThread):
+    """Background thread that keeps one asyncio event loop alive.
+
+    bleak callbacks capture the event loop that created the client. Reusing
+    a single loop avoids 'Event loop is closed' errors on refresh/disconnect.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._loop = None
+        self._ready = threading.Event()
+        self._running = True
+
+    def run(self):
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        self._ready.set()
+        try:
+            self._loop.run_forever()
+        finally:
+            if self._loop and not self._loop.is_closed():
+                tasks = [t for t in asyncio.all_tasks(self._loop) if not t.done()]
+                for task in tasks:
+                    task.cancel()
+                if tasks:
+                    self._loop.run_until_complete(
+                        asyncio.gather(*tasks, return_exceptions=True))
+                self._loop.close()
+
+    def stop(self):
+        self._running = False
+        if self._loop and not self._loop.is_closed():
+            self._loop.call_soon_threadsafe(self._loop.stop)
+
+    def run_coro(self, coro, timeout=None):
+        if not self._running:
+            raise RuntimeError('AsyncLoopThread is not running')
+        self._ready.wait()
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return future.result(timeout)
+
+
+# ── BLE Worker Threads ───────────────────────────────────────────
 
 class ScanThread(QThread):
     """Continuous scan thread: runs short scan cycles and emits devices in real-time."""
@@ -31,8 +77,9 @@ class ScanThread(QThread):
     CYCLE_S = 5.0       # each scan cycle duration
     MAX_S = 60.0        # max total scan time
 
-    def __init__(self, parent=None):
+    def __init__(self, loop_thread, parent=None):
         super().__init__(parent)
+        self._loop_thread = loop_thread
         self._stop_flag = False
 
     def stop(self):
@@ -44,7 +91,8 @@ class ScanThread(QThread):
             start = time.monotonic()
 
             while not self._stop_flag and (time.monotonic() - start) < self.MAX_S:
-                devices = asyncio.run(sdk.scan_rings(timeout_s=self.CYCLE_S))
+                devices = self._loop_thread.run_coro(
+                    sdk.scan_rings(timeout_s=self.CYCLE_S), timeout=self.CYCLE_S + 5)
                 if self._stop_flag:
                     break
 
@@ -65,14 +113,15 @@ class ConnectThread(QThread):
     connected = pyqtSignal(object)
     error = pyqtSignal(str)
 
-    def __init__(self, address=None, parent=None):
+    def __init__(self, address, loop_thread, parent=None):
         super().__init__(parent)
         self.address = address
+        self._loop_thread = loop_thread
 
     def run(self):
         try:
-            client = asyncio.run(sdk.connect_ring(
-                address=self.address, auto_time_sync=True))
+            client = self._loop_thread.run_coro(
+                sdk.connect_ring(address=self.address, auto_time_sync=True), timeout=60)
             self.connected.emit(client)
         except Exception as e:
             self.error.emit(str(e))
@@ -83,13 +132,18 @@ class GetInfoThread(QThread):
     infoReceived = pyqtSignal(object)
     error = pyqtSignal(str)
 
-    def __init__(self, client, parent=None):
+    def __init__(self, client, loop_thread, timeout_s=None, parent=None):
         super().__init__(parent)
         self.client = client
+        self._loop_thread = loop_thread
+        self.timeout_s = timeout_s
 
     def run(self):
         try:
-            info = asyncio.run(sdk.get_system_info(self.client))
+            coro = sdk.get_system_info(self.client)
+            if self.timeout_s:
+                coro = asyncio.wait_for(coro, timeout=self.timeout_s)
+            info = self._loop_thread.run_coro(coro, timeout=self.timeout_s or 30)
             self.infoReceived.emit(info)
         except Exception as e:
             self.error.emit(str(e))
@@ -100,13 +154,14 @@ class DisconnectThread(QThread):
     disconnected = pyqtSignal()
     error = pyqtSignal(str)
 
-    def __init__(self, client, parent=None):
+    def __init__(self, client, loop_thread, parent=None):
         super().__init__(parent)
         self.client = client
+        self._loop_thread = loop_thread
 
     def run(self):
         try:
-            asyncio.run(self.client.disconnect())
+            self._loop_thread.run_coro(self.client.disconnect(), timeout=20)
             self.disconnected.emit()
         except Exception as e:
             self.error.emit(str(e))
@@ -274,6 +329,10 @@ class ConnectInterface(ScrollArea):
         self._threads = []
         self._allDevices = []
         self._scanThread = None
+        self._deviceName = None
+        self._deviceAddress = None
+        self._asyncLoopThread = AsyncLoopThread(self)
+        self._asyncLoopThread.start()
 
         self.__initWidget()
 
@@ -308,6 +367,11 @@ class ConnectInterface(ScrollArea):
         self.scanBtn.clicked.connect(self.__onScan)
         self.disconnectBtn.clicked.connect(self.__onDisconnect)
         self.macFilterEdit.textChanged.connect(self.__onFilterChanged)
+        signalBus.refreshSystemInfoRequested.connect(self.__onRefreshSystemInfo)
+
+        # cleanup
+        loop_thread = self._asyncLoopThread
+        self.destroyed.connect(lambda: loop_thread.stop())
 
     # ── Scan ────────────────────────────────────────────────────
 
@@ -329,7 +393,7 @@ class ConnectInterface(ScrollArea):
         self.deviceListView.addWidget(self.emptyLabel)
         self.deviceCountLabel.setVisible(False)
 
-        self._scanThread = ScanThread(parent=self)
+        self._scanThread = ScanThread(self._asyncLoopThread, parent=self)
         self._scanThread.devicesUpdated.connect(self.__onDevicesUpdated)
         self._scanThread.scanFinished.connect(self.__onScanFinished)
         self._scanThread.error.connect(self.__onScanError)
@@ -431,12 +495,14 @@ class ConnectInterface(ScrollArea):
     # ── Connect ─────────────────────────────────────────────────
 
     def __onConnectDevice(self, address, name):
+        self._deviceAddress = address
+        self._deviceName = name
         self.scanBtn.setEnabled(False)
         self.progressBar.setVisible(True)
         self.progressBar.start()
         self.statusLabel.setText(f'正在连接 {name}...')
 
-        thread = ConnectThread(address=address, parent=self)
+        thread = ConnectThread(address, self._asyncLoopThread, parent=self)
         thread.connected.connect(self.__onConnected)
         thread.error.connect(self.__onConnectError)
         thread.finished.connect(lambda: self.__threadDone(thread))
@@ -454,6 +520,7 @@ class ConnectInterface(ScrollArea):
         InfoBar.success('连接成功', '戒指已连接',
                         parent=self.window(), duration=2000,
                         position=InfoBarPosition.TOP_RIGHT)
+        signalBus.deviceConnected.emit(self._deviceName or '未知设备', self._deviceAddress or '')
         self.__fetchSystemInfo()
 
     def __onConnectError(self, error_msg):
@@ -475,7 +542,7 @@ class ConnectInterface(ScrollArea):
         self.progressBar.start()
         self.statusLabel.setText('正在断开...')
 
-        thread = DisconnectThread(self._client, parent=self)
+        thread = DisconnectThread(self._client, self._asyncLoopThread, parent=self)
         thread.disconnected.connect(self.__onDisconnected)
         thread.error.connect(self.__onDisconnectError)
         thread.finished.connect(lambda: self.__threadDone(thread))
@@ -486,9 +553,12 @@ class ConnectInterface(ScrollArea):
         self.progressBar.stop()
         self.progressBar.setVisible(False)
         self._client = None
+        self._deviceName = None
+        self._deviceAddress = None
         self.statusLabel.setText('未连接')
         self.disconnectBtn.setEnabled(False)
         self.deviceInfoCard.reset()
+        signalBus.deviceDisconnected.emit()
         InfoBar.info('已断开', '戒指已断开连接',
                      parent=self.window(), duration=2000,
                      position=InfoBarPosition.TOP_RIGHT)
@@ -501,18 +571,24 @@ class ConnectInterface(ScrollArea):
 
     # ── System Info ─────────────────────────────────────────────
 
-    def __fetchSystemInfo(self):
+    def __fetchSystemInfo(self, timeout_s=None):
         if self._client is None:
             return
-        thread = GetInfoThread(self._client, parent=self)
+        thread = GetInfoThread(self._client, self._asyncLoopThread, timeout_s=timeout_s, parent=self)
         thread.infoReceived.connect(self.__onSystemInfo)
         thread.error.connect(self.__onSystemInfoError)
         thread.finished.connect(lambda: self.__threadDone(thread))
         thread.start()
         self._threads.append(thread)
 
+    def __onRefreshSystemInfo(self):
+        if self._client is None:
+            return
+        self.__fetchSystemInfo(timeout_s=60)
+
     def __onSystemInfo(self, info):
         self.deviceInfoCard.updateInfo(info)
+        signalBus.systemInfoReceived.emit(info)
 
     def __onSystemInfoError(self, error_msg):
         InfoBar.warning('获取信息失败', error_msg,

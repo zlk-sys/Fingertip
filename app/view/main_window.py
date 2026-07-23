@@ -10,6 +10,7 @@ from qfluentwidgets import FluentIcon as FIF
 
 from .home_interface import HomeInterface
 from .connect_interface import ConnectInterface
+from .device_info_interface import DeviceInfoInterface
 from .basic_interface import BasicInterface
 from .setting_interface import SettingInterface
 from ..common.config import cfg
@@ -28,6 +29,7 @@ class MainWindow(FluentWindow):
         # create sub interfaces
         self.homeInterface = HomeInterface(self)
         self.connectInterface = ConnectInterface(self)
+        self.deviceInfoInterface = DeviceInfoInterface(self)
         self.basicInterface = BasicInterface(self)
         self.settingInterface = SettingInterface(self)
 
@@ -50,6 +52,7 @@ class MainWindow(FluentWindow):
         # add navigation items
         self.addSubInterface(self.homeInterface, FIF.HOME, self.tr('首页'))
         self.addSubInterface(self.connectInterface, FIF.CONNECT, self.tr('连接戒指'))
+        self.addSubInterface(self.deviceInfoInterface, FIF.PHONE, self.tr('设备'))
 
         self.navigationInterface.addSeparator()
 
