@@ -14,6 +14,7 @@ from .device_info_interface import DeviceInfoInterface
 from .meeting_interface import MeetingInterface
 from .multimedia_interface import MultimediaInterface
 from .sensor_interface import SensorInterface
+from .level_interface import LevelInterface
 from .basic_interface import BasicInterface
 from .setting_interface import SettingInterface
 from ..common.config import cfg
@@ -36,6 +37,7 @@ class MainWindow(FluentWindow):
         self.meetingInterface = MeetingInterface(self)
         self.multimediaInterface = MultimediaInterface(self)
         self.sensorInterface = SensorInterface(self)
+        self.levelInterface = LevelInterface(self)
         self.basicInterface = BasicInterface(self)
         self.settingInterface = SettingInterface(self)
 
@@ -66,6 +68,7 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.meetingInterface, FIF.MUTE, self.tr('会议模式'))
         self.addSubInterface(self.multimediaInterface, FIF.VIDEO, self.tr('追剧模式'))
         self.addSubInterface(self.sensorInterface, FIF.MOVE, self.tr('传感器'))
+        self.addSubInterface(self.levelInterface, FIF.ROTATE, self.tr('水平仪'))
 
         self.navigationInterface.addSeparator()
 
