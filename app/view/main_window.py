@@ -190,12 +190,12 @@ class MainWindow(FluentWindow):
         # add navigation items
         self.addSubInterface(self.homeInterface, FIF.HOME, self.tr('首页'))
         self.addSubInterface(self.deviceInfoInterface, FIF.DEVELOPER_TOOLS, self.tr('设备'))
+        self.navigationInterface.addSeparator()
         self.addSubInterface(self.meetingInterface, FIF.MUTE, self.tr('会议模式'))
         self.addSubInterface(self.multimediaInterface, FIF.VIDEO, self.tr('追剧模式'))
         self.addSubInterface(self.sensorInterface, FIF.MOVE, self.tr('传感器'))
         self.addSubInterface(self.levelInterface, FIF.ROTATE, self.tr('水平仪'))
 
-        self.navigationInterface.addSeparator()
 
         # add settings to bottom
         self.addSubInterface(self.connectInterface, FIF.CONNECT, self.tr('连接戒指'), NavigationItemPosition.BOTTOM)
