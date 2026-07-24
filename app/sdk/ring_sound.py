@@ -709,6 +709,7 @@ class RingSoundClient:
         self._protocol_errors: asyncio.Queue[ProtocolError] = asyncio.Queue()
         self._disconnected = asyncio.Event()
         self._disconnected.set()
+        self.on_unexpected_disconnect: Any = None  # external callback for unexpected disconnects
 
     @staticmethod
     async def discover(*args: Any, **kwargs: Any) -> list[BleDeviceInfo]:
@@ -833,6 +834,8 @@ class RingSoundClient:
     def _on_disconnect(self) -> None:
         self._disconnected.set()
         self._clear_receive_state()
+        if self.on_unexpected_disconnect is not None:
+            self.on_unexpected_disconnect()
 
     def _drain_queue(self, command: int) -> None:
         queue = self._queues[command]

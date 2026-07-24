@@ -26,3 +26,7 @@ pynput
 
 # --- System theme detection (dark mode auto-switch) ---
 darkdetect
+
+# --- Collab mode (ASR + AI inference) ---
+openai
+requests

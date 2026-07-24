@@ -69,7 +69,7 @@ class BannerWidget(QWidget):
         self.setFixedHeight(280)
 
         self.vBoxLayout = QVBoxLayout(self)
-        self.titleLabel = TitleLabel(f'{self.get_time_period()}好，我是Fingertip👋', self)
+        self.titleLabel = TitleLabel(f'{self.get_time_period()}好，这里是指尖工具箱👋', self)
         self.subtitleLabel = BodyLabel('指尖控万物', self)
         self.connectStatus = AlertBanner(self)
         self.connectStatus.messageLabel.setText('当前尚未连接戒指，快去连接以开启智慧生活')
@@ -229,6 +229,7 @@ class HomeInterface(ScrollArea):
             ('指尖实验室', '实时采集传感器数据', signalBus.switchToSensor),
             ('水平仪', '可视化查看设备倾斜角度', signalBus.switchToLevel),
             ('轨迹绘制', '手势在空中绘制轨迹', signalBus.switchToDrawing),
+            ('协同模式', '语音录音转写并 AI 回答', signalBus.switchToCollab),
         ]
 
         for index, (title, subtitle, signal) in enumerate(cards):

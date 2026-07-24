@@ -7,6 +7,7 @@ In coding mode, the ring button controls a programming assistant:
 """
 import subprocess
 import sys
+import threading
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor
@@ -271,17 +272,20 @@ class CodingInterface(ScrollArea):
         press_enter()
 
     async def _on_double_press(self, packet):
-        """Handle double press: launch the configured assistant."""
-        self._launchAssistant()
+        """Handle double press: launch the configured assistant in a new thread."""
+        threading.Thread(target=self._launchAssistant, daemon=True).start()
 
     def _launchAssistant(self):
-        """Launch the pre-configured programming assistant in a new terminal."""
+        """Launch the pre-configured programming assistant in a new terminal.
+        
+        This runs in a background thread to avoid blocking the event loop.
+        """
         assistant = cfg.get(cfg.codingAssistant)
         try:
             if sys.platform == 'win32':
-                # Windows: open in a new cmd window
+                # Windows: open assistant in a new cmd window (non-blocking)
                 subprocess.Popen(
-                    ['cmd', '/c', 'start', 'cmd', '/k', assistant],
+                    ['cmd', '/k', assistant],
                     creationflags=subprocess.CREATE_NEW_CONSOLE
                 )
             elif sys.platform == 'darwin':
@@ -290,16 +294,8 @@ class CodingInterface(ScrollArea):
             else:
                 # Linux: try common terminal emulators
                 subprocess.Popen(['x-terminal-emulator', '-e', assistant])
-
-            InfoBar.success('已启动编程助手',
-                            f'正在打开 {assistant}...',
-                            parent=self.window(), duration=2000,
-                            position=InfoBarPosition.TOP_RIGHT)
-        except Exception as exc:
-            InfoBar.error('启动失败',
-                          f'无法启动 {assistant}：{exc}',
-                          parent=self.window(), duration=3000,
-                          position=InfoBarPosition.TOP_RIGHT)
+        except Exception:
+            pass  # Silently fail - running in background thread
 
     def __onAssistantChanged(self, text: str):
         """Save the assistant choice to config."""

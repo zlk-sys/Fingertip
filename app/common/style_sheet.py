@@ -17,6 +17,7 @@ class StyleSheet(StyleSheetBase, Enum):
     LEVEL_INTERFACE = "level_interface"
     DRAWING_INTERFACE = "drawing_interface"
     CODING_INTERFACE = "coding_interface"
+    COLLAB_INTERFACE = "collab_interface"
 
     def path(self, theme=Theme.AUTO):
         theme = qconfig.theme if theme == Theme.AUTO else theme

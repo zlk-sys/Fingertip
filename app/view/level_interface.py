@@ -160,8 +160,8 @@ class LevelInterface(ScrollArea):
         self.statusCard.setBorderRadius(12)
         self.statusCard.setFixedHeight(80)
 
-        self.statusIcon = IconWidget(FIF.ROTATE, self.statusCard)
-        self.statusIcon.setFixedSize(40, 40)
+        # self.statusIcon = IconWidget(FIF.ROTATE, self.statusCard)
+        # self.statusIcon.setFixedSize(40, 40)
 
         self.statusLabel = StrongBodyLabel('水平仪未开启', self.statusCard)
         self.statusLabel.setObjectName('levelStatusLabel')
@@ -267,7 +267,7 @@ class LevelInterface(ScrollArea):
         cardLayout = QHBoxLayout(self.statusCard)
         cardLayout.setContentsMargins(20, 16, 20, 16)
         cardLayout.setSpacing(16)
-        cardLayout.addWidget(self.statusIcon, 0, Qt.AlignVCenter)
+        # cardLayout.addWidget(self.statusIcon, 0, Qt.AlignVCenter)
         cardLayout.addSpacing(4)
 
         textLayout = QVBoxLayout()
@@ -374,7 +374,7 @@ class LevelInterface(ScrollArea):
         self.calibrateBtn.setEnabled(True)
         self.statusLabel.setText('水平仪运行中')
         self.statusLabel.setProperty('active', True)
-        self.statusIcon.setIcon(FIF.PAUSE)
+        # self.statusIcon.setIcon(FIF.PAUSE)
         self.toggleBtn.setText('关闭水平仪')
 
         self.statusLabel.style().unpolish(self.statusLabel)
@@ -392,7 +392,7 @@ class LevelInterface(ScrollArea):
         signalBus.modeStopped.emit('level')
         self.statusLabel.setText('水平仪未开启')
         self.statusLabel.setProperty('active', False)
-        self.statusIcon.setIcon(FIF.ROTATE)
+        # self.statusIcon.setIcon(FIF.ROTATE)
         self.toggleBtn.setText('开启水平仪')
         self.toggleBtn.setChecked(False)
 

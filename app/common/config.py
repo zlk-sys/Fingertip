@@ -55,6 +55,13 @@ class Config(QConfig):
     codingAssistant = OptionsConfigItem(
         "Coding", "Assistant", "claude", OptionsValidator(["claude", "qoder"]))
 
+    # Collab mode (协同模式)
+    stepFunApiKey = ConfigItem("Collab", "StepFunApiKey", "")
+    collabModel = ConfigItem("Collab", "CollabModel", "step-2-16k")
+    collabSystemPrompt = ConfigItem(
+        "Collab", "SystemPrompt",
+        "你是一个智能助手，请根据用户的语音转写内容给出简洁、有帮助的回答。请直接回答，不要重复用户的问题。")
+
 
 YEAR = 2026
 AUTHOR = "Fingertip"

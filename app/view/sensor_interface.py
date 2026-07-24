@@ -155,8 +155,8 @@ class SensorInterface(ScrollArea):
         self.statusCard.setBorderRadius(12)
         self.statusCard.setFixedHeight(80)
 
-        self.statusIcon = IconWidget(FIF.MOVE, self.statusCard)
-        self.statusIcon.setFixedSize(40, 40)
+        # self.statusIcon = IconWidget(FIF.MOVE, self.statusCard)
+        # self.statusIcon.setFixedSize(40, 40)
 
         self.statusLabel = StrongBodyLabel('指尖实验室未开启', self.statusCard)
         self.statusLabel.setObjectName('sensorStatusLabel')
@@ -317,7 +317,7 @@ class SensorInterface(ScrollArea):
         cardLayout = QHBoxLayout(self.statusCard)
         cardLayout.setContentsMargins(20, 16, 20, 16)
         cardLayout.setSpacing(16)
-        cardLayout.addWidget(self.statusIcon, 0, Qt.AlignVCenter)
+        # cardLayout.addWidget(self.statusIcon, 0, Qt.AlignVCenter)
         cardLayout.addSpacing(4)
 
         textLayout = QVBoxLayout()
@@ -506,7 +506,7 @@ class SensorInterface(ScrollArea):
         self._durationTimer.start(200)
         self.statusLabel.setText('指尖实验室运行中')
         self.statusLabel.setProperty('active', True)
-        self.statusIcon.setIcon(FIF.PAUSE)
+        # self.statusIcon.setIcon(FIF.PAUSE)
         self.toggleBtn.setText('停止采集')
         self.rateLabel.findChild(StrongBodyLabel).setText(
             f'{start_info.sample_rate_hz} Hz'
@@ -528,7 +528,7 @@ class SensorInterface(ScrollArea):
         self._durationTimer.stop()
         self.statusLabel.setText('指尖实验室已停止')
         self.statusLabel.setProperty('active', False)
-        self.statusIcon.setIcon(FIF.MOVE)
+        # self.statusIcon.setIcon(FIF.MOVE)
         self.toggleBtn.setText('开启采集')
         self.toggleBtn.setChecked(False)
         self.exportBtn.setEnabled(len(self._samples) > 0)

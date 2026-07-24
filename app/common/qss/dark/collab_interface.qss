@@ -1,0 +1,37 @@
+CollabInterface, #view {
+    background-color: transparent;
+}
+
+QScrollArea {
+    background-color: transparent;
+    border: none;
+}
+
+#collabStatusLabel[active="true"] {
+    color: #4dcb66;
+}
+
+#collabStatusLabel[active="false"] {
+    color: #8a8a8a;
+}
+
+#chatBubble {
+    background-color: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    padding: 8px;
+}
+
+#chatBubbleUser {
+    background-color: #1e3a1e;
+    border: 1px solid #2d5a2d;
+    border-radius: 8px;
+    padding: 8px;
+}
+
+#chatBubbleAssistant {
+    background-color: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    padding: 8px;
+}

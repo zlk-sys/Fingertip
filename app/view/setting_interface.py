@@ -1,15 +1,16 @@
 # coding: utf-8
 from PyQt5.QtCore import Qt, pyqtSignal, QUrl
-from PyQt5.QtGui import QDesktopServices
-from PyQt5.QtWidgets import QWidget, QLabel, QFileDialog
+from PyQt5.QtGui import QDesktopServices, QColor
+from PyQt5.QtWidgets import QWidget, QLabel, QFileDialog, QLineEdit, QHBoxLayout, QVBoxLayout
 
 from qfluentwidgets import (SettingCardGroup, SwitchSettingCard,
                             OptionsSettingCard, PushSettingCard,
                             HyperlinkCard, PrimaryPushSettingCard, ScrollArea,
                             ComboBoxSettingCard, ExpandLayout, Theme, CustomColorSettingCard,
                             setTheme, setThemeColor, RangeSettingCard, isDarkTheme,
-                            TitleLabel,
-                            InfoBar, InfoBarPosition, FluentIcon)
+                            TitleLabel, LineEdit,
+                            InfoBar, InfoBarPosition, FluentIcon,
+                            SimpleCardWidget, BodyLabel, CaptionLabel)
 
 from ..common.config import cfg, HELP_URL, FEEDBACK_URL, AUTHOR, VERSION, YEAR, isWin11
 from ..common.signal_bus import signalBus
@@ -97,6 +98,61 @@ class SettingInterface(ScrollArea):
             parent=self.updateSoftwareGroup
         )
 
+        # collab mode
+        self.collabGroup = SettingCardGroup(
+            self.tr('协同模式'), self.scrollWidget)
+
+        # API Key card
+        self.apiKeyCard = SimpleCardWidget(self.collabGroup)
+        self.apiKeyCard.setBorderRadius(8)
+        self.apiKeyCard.setFixedHeight(72)
+        self._apiKeyLayout = QHBoxLayout(self.apiKeyCard)
+        self._apiKeyLayout.setContentsMargins(20, 16, 20, 16)
+        self._apiKeyLeft = QVBoxLayout()
+        self._apiKeyLeft.setSpacing(2)
+        self._apiKeyLabel = BodyLabel('StepFun API Key', self.apiKeyCard)
+        self._apiKeyHint = CaptionLabel(
+            '用于语音识别和 AI 推理，请在 StepFun 平台获取', self.apiKeyCard)
+        self._apiKeyHint.setTextColor(
+            Qt.gray if isDarkTheme() else QColor(96, 96, 96),
+            QColor(160, 160, 160) if isDarkTheme() else QColor(180, 180, 180))
+        self._apiKeyLeft.addWidget(self._apiKeyLabel)
+        self._apiKeyLeft.addWidget(self._apiKeyHint)
+        self.apiKeyEdit = LineEdit(self.apiKeyCard)
+        self.apiKeyEdit.setPlaceholderText('输入 API Key')
+        self.apiKeyEdit.setEchoMode(QLineEdit.Password)
+        self.apiKeyEdit.setFixedWidth(280)
+        self.apiKeyEdit.setText(cfg.get(cfg.stepFunApiKey))
+        self.apiKeyEdit.textChanged.connect(self.__onApiKeyChanged)
+        self._apiKeyLayout.addLayout(self._apiKeyLeft)
+        self._apiKeyLayout.addStretch(1)
+        self._apiKeyLayout.addWidget(self.apiKeyEdit)
+
+        # Model card
+        self.modelCard = SimpleCardWidget(self.collabGroup)
+        self.modelCard.setBorderRadius(8)
+        self.modelCard.setFixedHeight(72)
+        self._modelLayout = QHBoxLayout(self.modelCard)
+        self._modelLayout.setContentsMargins(20, 16, 20, 16)
+        self._modelLeft = QVBoxLayout()
+        self._modelLeft.setSpacing(2)
+        self._modelLabel = BodyLabel('AI 推理模型', self.modelCard)
+        self._modelHint = CaptionLabel(
+            'StepFun 平台支持的模型名称', self.modelCard)
+        self._modelHint.setTextColor(
+            Qt.gray if isDarkTheme() else QColor(96, 96, 96),
+            QColor(160, 160, 160) if isDarkTheme() else QColor(180, 180, 180))
+        self._modelLeft.addWidget(self._modelLabel)
+        self._modelLeft.addWidget(self._modelHint)
+        self.modelEdit = LineEdit(self.modelCard)
+        self.modelEdit.setPlaceholderText('模型名称')
+        self.modelEdit.setFixedWidth(280)
+        self.modelEdit.setText(cfg.get(cfg.collabModel))
+        self.modelEdit.textChanged.connect(self.__onModelChanged)
+        self._modelLayout.addLayout(self._modelLeft)
+        self._modelLayout.addStretch(1)
+        self._modelLayout.addWidget(self.modelEdit)
+
         # about
         self.aboutGroup = SettingCardGroup(self.tr('关于'), self.scrollWidget)
         self.helpCard = HyperlinkCard(
@@ -166,8 +222,12 @@ class SettingInterface(ScrollArea):
         # add setting card group to layout
         self.expandLayout.setSpacing(28)
         self.expandLayout.setContentsMargins(36, 10, 36, 0)
+        self.collabGroup.addSettingCard(self.apiKeyCard)
+        self.collabGroup.addSettingCard(self.modelCard)
+
         self.expandLayout.addWidget(self.personalGroup)
         self.expandLayout.addWidget(self.materialGroup)
+        self.expandLayout.addWidget(self.collabGroup)
         self.expandLayout.addWidget(self.updateSoftwareGroup)
         self.expandLayout.addWidget(self.aboutGroup)
 
@@ -179,6 +239,12 @@ class SettingInterface(ScrollArea):
             duration=1500,
             parent=self
         )
+
+    def __onApiKeyChanged(self, text: str):
+        cfg.set(cfg.stepFunApiKey, text)
+
+    def __onModelChanged(self, text: str):
+        cfg.set(cfg.collabModel, text)
 
     def __connectSignalToSlot(self):
         """ connect signal to slot """

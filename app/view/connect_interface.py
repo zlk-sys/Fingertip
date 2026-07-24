@@ -3,7 +3,7 @@ import asyncio
 import threading
 import time
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
 
@@ -103,7 +103,26 @@ class ScanThread(QThread):
             start = time.monotonic()
 
             while not self._stop_flag and (time.monotonic() - start) < self.MAX_S:
-                devices = asyncio.run(sdk.scan_rings(timeout_s=self.CYCLE_S))
+                # Use a dedicated loop per cycle and allow pending
+                # bleak/WinRT callbacks to drain before closing, which
+                # avoids 'Event loop is closed' tracebacks on Windows.
+                _loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(_loop)
+                try:
+                    devices = _loop.run_until_complete(
+                        sdk.scan_rings(timeout_s=self.CYCLE_S))
+                    # Let any pending WinRT callbacks fire while the
+                    # loop is still alive.
+                    _loop.run_until_complete(asyncio.sleep(0.2))
+                except Exception:
+                    devices = []
+                finally:
+                    # Drain remaining callbacks silently
+                    for handle in list(_loop._ready):
+                        handle.cancel()
+                    _loop.run_until_complete(asyncio.sleep(0))
+                    _loop.close()
+
                 if self._stop_flag:
                     break
 
@@ -232,6 +251,9 @@ class ConnectInterface(ScrollArea):
 
     PAGE_SIZE = 10
 
+    # Signal to marshal unexpected-disconnect callback to the main thread
+    _unexpectedDisconnectSignal = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__(parent=parent)
 
@@ -305,6 +327,18 @@ class ConnectInterface(ScrollArea):
         self._asyncLoopThread = AsyncLoopThread(self)
         self._asyncLoopThread.start()
 
+        # Reconnection state
+        self._userDisconnecting = False   # True when user clicks disconnect
+        self._reconnecting = False        # True during auto-reconnect attempts
+        self._reconnectAttempts = 0
+        self._maxReconnectAttempts = 3
+        self._lastAddress = None          # saved for reconnection
+        self._lastName = None             # saved for reconnection
+
+        # Unresponsive device tracking
+        self._consecutiveFailures = 0
+        self._maxConsecutiveFailures = 3
+
         global async_loop_thread
         async_loop_thread = self._asyncLoopThread
 
@@ -343,6 +377,7 @@ class ConnectInterface(ScrollArea):
         self.macFilterEdit.textChanged.connect(self.__onFilterChanged)
         self.pipsPager.currentIndexChanged.connect(self.__onPageChanged)
         signalBus.refreshSystemInfoRequested.connect(self.__onRefreshSystemInfo)
+        self._unexpectedDisconnectSignal.connect(self.__onUnexpectedDisconnect)
 
         # cleanup
         loop_thread = self._asyncLoopThread
@@ -527,8 +562,17 @@ class ConnectInterface(ScrollArea):
         self.__startConnect(address, name)
 
     def __startConnect(self, address, name):
+        # Prevent duplicate connections
+        if self._client is not None:
+            InfoBar.warning('已连接设备', '请先断开当前设备再连接新设备',
+                            parent=self.window(), duration=3000,
+                            position=InfoBarPosition.TOP_RIGHT)
+            return
+
         self._deviceAddress = address
         self._deviceName = name
+        self._lastAddress = address
+        self._lastName = name
         self.scanBtn.setEnabled(False)
         self.progressBar.setVisible(True)
         self.progressBar.start()
@@ -545,6 +589,9 @@ class ConnectInterface(ScrollArea):
         self.progressBar.stop()
         self.progressBar.setVisible(False)
         self._client = client
+        self._reconnecting = False
+        self._reconnectAttempts = 0
+        self._consecutiveFailures = 0
         self.__setStatus('已连接', 'success')
         self.disconnectBtn.setEnabled(True)
         self.scanBtn.setEnabled(True)
@@ -553,11 +600,16 @@ class ConnectInterface(ScrollArea):
         global shared_client
         shared_client = client
 
+        # Register unexpected disconnect callback for auto-reconnect
+        client.on_unexpected_disconnect = self._onUnexpectedDisconnectFromThread
+
         InfoBar.success('连接成功', '戒指已连接',
                         parent=self.window(), duration=2000,
                         position=InfoBarPosition.TOP_RIGHT)
         signalBus.deviceConnected.emit(self._deviceName or '未知设备', self._deviceAddress or '')
-        self.__fetchSystemInfo()
+
+        # Wait 500ms before fetching system info to let BLE stack settle
+        QTimer.singleShot(500, self.__fetchSystemInfo)
 
     def __onConnectError(self, error_msg):
         self.progressBar.stop()
@@ -573,6 +625,7 @@ class ConnectInterface(ScrollArea):
     def __onDisconnect(self):
         if self._client is None:
             return
+        self._userDisconnecting = True  # Mark as user-initiated disconnect
         self.disconnectBtn.setEnabled(False)
         self.progressBar.setVisible(True)
         self.progressBar.start()
@@ -588,6 +641,7 @@ class ConnectInterface(ScrollArea):
     def __onDisconnected(self):
         self.progressBar.stop()
         self.progressBar.setVisible(False)
+        self._userDisconnecting = False  # Reset flag
         self._client = None
         self._deviceName = None
         self._deviceAddress = None
@@ -627,12 +681,106 @@ class ConnectInterface(ScrollArea):
         self.__fetchSystemInfo(timeout_s=60)
 
     def __onSystemInfo(self, info):
+        self._consecutiveFailures = 0  # Reset failure counter on success
         signalBus.systemInfoReceived.emit(info)
 
     def __onSystemInfoError(self, error_msg):
-        InfoBar.warning('获取信息失败', error_msg,
-                        parent=self.window(), duration=3000,
+        self._consecutiveFailures += 1
+        if self._consecutiveFailures >= self._maxConsecutiveFailures:
+            # Device may be unresponsive, trigger reconnect
+            InfoBar.warning('设备无响应', f'连续 {self._consecutiveFailures} 次命令失败，正在重连...',
+                            parent=self.window(), duration=3000,
+                            position=InfoBarPosition.TOP_RIGHT)
+            self._userDisconnecting = False  # Treat as unexpected disconnect
+            self.__onDisconnect()  # Proactively disconnect
+        else:
+            InfoBar.warning('获取信息失败', error_msg,
+                            parent=self.window(), duration=3000,
+                            position=InfoBarPosition.TOP_RIGHT)
+
+    # ── Auto-reconnect (exponential backoff) ───────────────────
+
+    def _onUnexpectedDisconnectFromThread(self):
+        """Thread-safe wrapper: called from BLE async thread, emits signal to main thread."""
+        self._unexpectedDisconnectSignal.emit()
+
+    def __onUnexpectedDisconnect(self):
+        """Main-thread handler: connection dropped unexpectedly (not user-initiated)."""
+        if self._userDisconnecting or self._reconnecting:
+            return
+
+        self._reconnecting = True
+        self._reconnectAttempts = 0
+        self.__tryReconnect()
+
+    def __tryReconnect(self):
+        """Attempt reconnection with exponential backoff (1s, 2s, 4s)."""
+        if self._reconnectAttempts >= self._maxReconnectAttempts:
+            self._reconnecting = False
+            self.__onFullyDisconnected()
+            InfoBar.error('重连失败', f'尝试 {self._maxReconnectAttempts} 次后仍无法重连',
+                          parent=self.window(), duration=5000,
+                          position=InfoBarPosition.TOP_RIGHT)
+            return
+
+        delay = 2 ** self._reconnectAttempts  # 1s, 2s, 4s
+        self._reconnectAttempts += 1
+
+        self.__setStatus(f'连接已断开，{delay}秒后尝试重连 ({self._reconnectAttempts}/{self._maxReconnectAttempts})...')
+
+        # Use QTimer for delayed reconnection
+        QTimer.singleShot(delay * 1000, self.__doReconnect)
+
+    def __doReconnect(self):
+        """Execute the reconnection attempt."""
+        if not self._lastAddress:
+            self._reconnecting = False
+            return
+
+        self.__setStatus('正在重连...')
+        thread = ConnectThread(self._lastAddress, self._asyncLoopThread, parent=self)
+        thread.connected.connect(self.__onReconnectSuccess)
+        thread.error.connect(self.__onReconnectFail)
+        thread.finished.connect(lambda: self.__threadDone(thread))
+        thread.start()
+        self._threads.append(thread)
+
+    def __onReconnectSuccess(self, client):
+        """Reconnection succeeded."""
+        self._reconnecting = False
+        self._reconnectAttempts = 0
+        self._consecutiveFailures = 0
+        self._client = client
+        global shared_client
+        shared_client = client
+
+        # Re-register unexpected disconnect callback
+        client.on_unexpected_disconnect = self._onUnexpectedDisconnectFromThread
+
+        self.__setStatus('已连接（重连成功）', 'success')
+        self.disconnectBtn.setEnabled(True)
+        signalBus.deviceConnected.emit(self._lastName or '未知设备', self._lastAddress or '')
+
+        # Wait 500ms before fetching system info
+        QTimer.singleShot(500, self.__fetchSystemInfo)
+
+        InfoBar.success('重连成功', '戒指已重新连接',
+                        parent=self.window(), duration=2000,
                         position=InfoBarPosition.TOP_RIGHT)
+
+    def __onReconnectFail(self, error_msg):
+        """Reconnection failed, continue with exponential backoff."""
+        self.__tryReconnect()  # Recursive call; __tryReconnect checks attempt limit
+
+    def __onFullyDisconnected(self):
+        """Fully disconnected (reconnect exhausted or abandoned)."""
+        self._reconnecting = False
+        self._client = None
+        global shared_client
+        shared_client = None
+        self.__setStatus('未连接')
+        self.disconnectBtn.setEnabled(False)
+        signalBus.deviceDisconnected.emit()
 
     # ── Helpers ─────────────────────────────────────────────────
 

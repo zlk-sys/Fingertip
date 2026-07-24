@@ -20,6 +20,7 @@ from .sensor_interface import SensorInterface
 from .level_interface import LevelInterface
 from .drawing_interface import DrawingInterface
 from .coding_interface import CodingInterface
+from .collab_interface import CollabInterface
 from .setting_interface import SettingInterface
 from ..common.config import cfg
 from ..common.signal_bus import signalBus
@@ -159,6 +160,7 @@ class MainWindow(FluentWindow):
         self.levelInterface = LevelInterface(self)
         self.drawingInterface = DrawingInterface(self)
         self.codingInterface = CodingInterface(self)
+        self.collabInterface = CollabInterface(self)
         self.settingInterface = SettingInterface(self)
 
         # enable acrylic effect on navigation
@@ -207,6 +209,8 @@ class MainWindow(FluentWindow):
             lambda: self.switchTo(self.drawingInterface))
         signalBus.switchToCoding.connect(
             lambda: self.switchTo(self.codingInterface))
+        signalBus.switchToCollab.connect(
+            lambda: self.switchTo(self.collabInterface))
 
         # Device connect/disconnect for mode probe
         signalBus.deviceConnected.connect(self._onDeviceConnected)
@@ -227,6 +231,7 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.levelInterface, FIF.ROTATE, self.tr('水平仪'))
         self.addSubInterface(self.drawingInterface, FIF.PENCIL_INK, self.tr('轨迹绘制'))
         self.addSubInterface(self.codingInterface, FIF.CODE, self.tr('Coding 模式'))
+        self.addSubInterface(self.collabInterface, FIF.CHAT, self.tr('协同模式'))
 
 
         # add settings to bottom
@@ -238,7 +243,7 @@ class MainWindow(FluentWindow):
     def initWindow(self):
         self.resize(960, 780)
         self.setMinimumWidth(760)
-        self.setWindowTitle('Fingertip')
+        self.setWindowTitle('指尖工具箱')
 
         # set application logo
         logoPath = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', 'logo.png')
