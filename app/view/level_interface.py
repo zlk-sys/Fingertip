@@ -71,6 +71,7 @@ class _CollectorThread(QThread):
         self._running = False
         self._client = None
         self._loop_thread = None
+        self._send_stop = True
 
     def set_client(self, client, loop_thread):
         self._client = client
@@ -82,6 +83,7 @@ class _CollectorThread(QThread):
             return
 
         self._running = True
+        self._send_stop = True
         try:
             start_info = self._loop_thread.run_coro(
                 start_sensor_report(self._client, timeout_s=10.0),
@@ -107,17 +109,25 @@ class _CollectorThread(QThread):
                     self.error.emit(f'读取传感器数据失败: {exc}')
                 break
 
-        try:
-            self._loop_thread.run_coro(
-                stop_sensor_report(self._client, timeout_s=10.0),
-                timeout=12.0,
-            )
-        except Exception:
-            pass
+        if self._send_stop:
+            try:
+                self._loop_thread.run_coro(
+                    stop_sensor_report(self._client, timeout_s=10.0),
+                    timeout=12.0,
+                )
+            except Exception:
+                pass
         self.stopped.emit()
 
-    def stop_collecting(self):
+    def stop_collecting(self, send_stop=True):
+        """Stop collecting. send_stop=False skips stop_sensor_report,
+        used when another stream mode is taking over the data stream."""
+        self._send_stop = send_stop
         self._running = False
+
+
+# Modes that consume the sensor data stream (start/stop_sensor_report)
+_STREAM_MODES = ('sensor', 'level', 'drawing')
 
 
 class LevelInterface(ScrollArea):
@@ -301,6 +311,7 @@ class LevelInterface(ScrollArea):
         self.calibrateBtn.clicked.connect(self.__onCalibrate)
         signalBus.deviceConnected.connect(self.__onDeviceConnected)
         signalBus.deviceDisconnected.connect(self.__onDeviceDisconnected)
+        signalBus.modeStarted.connect(self.__onOtherModeStarted)
 
         self._collector.batchReceived.connect(self.__onBatchReceived)
         self._collector.error.connect(self.__onCollectorError)
@@ -358,6 +369,7 @@ class LevelInterface(ScrollArea):
 
     def __onCollectorStarted(self, start_info):
         self._active = True
+        signalBus.modeStarted.emit('level')
         self._accelRangeG = start_info.accel_range_g
         self.calibrateBtn.setEnabled(True)
         self.statusLabel.setText('水平仪运行中')
@@ -377,6 +389,7 @@ class LevelInterface(ScrollArea):
 
     def __onCollectorStopped(self):
         self._active = False
+        signalBus.modeStopped.emit('level')
         self.statusLabel.setText('水平仪未开启')
         self.statusLabel.setProperty('active', False)
         self.statusIcon.setIcon(FIF.ROTATE)
@@ -395,6 +408,19 @@ class LevelInterface(ScrollArea):
         )
         self.toggleBtn.setChecked(False)
         self.__onCollectorStopped()
+
+    def __onOtherModeStarted(self, mode: str):
+        """Auto-stop the level when another mode starts."""
+        if mode == 'level' or not self._active:
+            return
+        # If the new mode also uses the sensor stream, don't send
+        # stop_sensor_report, otherwise it would kill the new mode's stream
+        self._collector.stop_collecting(send_stop=mode not in _STREAM_MODES)
+        InfoBar.info(
+            '水平仪已自动关闭', '已开启其他模式，水平仪自动退出',
+            parent=self.window(), duration=2000,
+            position=InfoBarPosition.TOP_RIGHT
+        )
 
     def __onCalibrate(self):
         """Set the current accelerometer direction as the 'flat' reference."""

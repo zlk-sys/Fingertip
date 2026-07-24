@@ -1,0 +1,24 @@
+DrawingInterface, #view {
+    background-color: transparent;
+}
+
+QScrollArea {
+    background-color: transparent;
+    border: none;
+}
+
+#drawingStatusLabel[active="true"] {
+    color: #00a854;
+}
+
+#drawingStatusLabel[active="false"] {
+    color: #5c5c5c;
+}
+
+#penStateLabel[penDown="true"] {
+    color: #00a854;
+}
+
+#penStateLabel[penDown="false"] {
+    color: #5c5c5c;
+}

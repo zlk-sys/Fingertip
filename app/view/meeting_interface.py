@@ -198,6 +198,7 @@ class MeetingInterface(ScrollArea):
         self.toggleBtn.toggled.connect(self.__onToggleMode)
         signalBus.deviceConnected.connect(self.__onDeviceConnected)
         signalBus.deviceDisconnected.connect(self.__onDeviceDisconnected)
+        signalBus.modeStarted.connect(self.__onOtherModeStarted)
 
         # Initial state check
         if _get_shared_client() is not None:
@@ -223,6 +224,7 @@ class MeetingInterface(ScrollArea):
 
         self._active = True
         self._register_handlers(client)
+        signalBus.modeStarted.emit('meeting')
         self.statusLabel.setText('会议模式已开启 - 监听中')
         self.statusLabel.setProperty('active', True)
         self.toggleBtn.setText('关闭会议模式')
@@ -249,6 +251,16 @@ class MeetingInterface(ScrollArea):
 
         self.statusLabel.style().unpolish(self.statusLabel)
         self.statusLabel.style().polish(self.statusLabel)
+        signalBus.modeStopped.emit('meeting')
+
+    def __onOtherModeStarted(self, mode: str):
+        """Auto-stop meeting mode when another mode starts."""
+        if mode == 'meeting' or not self._active:
+            return
+        self.toggleBtn.setChecked(False)  # triggers __stopMeetingMode
+        InfoBar.info('会议模式已自动关闭', '已开启其他模式，会议模式自动退出',
+                     parent=self.window(), duration=2000,
+                     position=InfoBarPosition.TOP_RIGHT)
 
     # ── Packet handlers ───────────────────────────────────────────
 

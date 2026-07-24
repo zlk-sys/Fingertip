@@ -34,6 +34,10 @@ def _get_shared_client():
     return connect_interface.shared_client
 
 
+# Modes that consume the sensor data stream (start/stop_sensor_report)
+_STREAM_MODES = ('sensor', 'level', 'drawing')
+
+
 @dataclass
 class _SensorSample:
     timestamp_ms: int
@@ -58,6 +62,7 @@ class _CollectorThread(QThread):
         self._running = False
         self._client = None
         self._loop_thread = None
+        self._send_stop = True
 
     def set_client(self, client, loop_thread):
         self._client = client
@@ -69,6 +74,7 @@ class _CollectorThread(QThread):
             return
 
         self._running = True
+        self._send_stop = True
         try:
             start_info = self._loop_thread.run_coro(
                 start_sensor_report(self._client, timeout_s=10.0),
@@ -94,16 +100,20 @@ class _CollectorThread(QThread):
                     self.error.emit(f'读取传感器数据失败: {exc}')
                 break
 
-        try:
-            self._loop_thread.run_coro(
-                stop_sensor_report(self._client, timeout_s=10.0),
-                timeout=12.0,
-            )
-        except Exception:
-            pass
+        if self._send_stop:
+            try:
+                self._loop_thread.run_coro(
+                    stop_sensor_report(self._client, timeout_s=10.0),
+                    timeout=12.0,
+                )
+            except Exception:
+                pass
         self.stopped.emit()
 
-    def stop_collecting(self):
+    def stop_collecting(self, send_stop=True):
+        """Stop collecting. send_stop=False skips stop_sensor_report,
+        used when another stream mode is taking over the data stream."""
+        self._send_stop = send_stop
         self._running = False
 
 
@@ -429,6 +439,7 @@ class SensorInterface(ScrollArea):
         self.unitSwitch.checkedChanged.connect(self.__onUnitChanged)
         signalBus.deviceConnected.connect(self.__onDeviceConnected)
         signalBus.deviceDisconnected.connect(self.__onDeviceDisconnected)
+        signalBus.modeStarted.connect(self.__onOtherModeStarted)
 
         self._collector.batchReceived.connect(self.__onBatchReceived)
         self._collector.error.connect(self.__onCollectorError)
@@ -488,6 +499,7 @@ class SensorInterface(ScrollArea):
 
     def __onCollectorStarted(self, start_info):
         self._active = True
+        signalBus.modeStarted.emit('sensor')
         self._start_time_s = time.time()
         self._accelRangeG = start_info.accel_range_g
         self._gyroRangeDps = start_info.gyro_range_dps
@@ -512,6 +524,7 @@ class SensorInterface(ScrollArea):
 
     def __onCollectorStopped(self):
         self._active = False
+        signalBus.modeStopped.emit('sensor')
         self._durationTimer.stop()
         self.statusLabel.setText('传感器采集已停止')
         self.statusLabel.setProperty('active', False)
@@ -539,6 +552,19 @@ class SensorInterface(ScrollArea):
         )
         self.toggleBtn.setChecked(False)
         self.__onCollectorStopped()
+
+    def __onOtherModeStarted(self, mode: str):
+        """Auto-stop collection when another mode starts."""
+        if mode == 'sensor' or not self._active:
+            return
+        # If the new mode also uses the sensor stream, don't send
+        # stop_sensor_report, otherwise it would kill the new mode's stream
+        self._collector.stop_collecting(send_stop=mode not in _STREAM_MODES)
+        InfoBar.info(
+            '传感器采集已自动停止', '已开启其他模式，采集自动退出',
+            parent=self.window(), duration=2000,
+            position=InfoBarPosition.TOP_RIGHT
+        )
 
     def __onBatchReceived(self, batch):
         latest = None

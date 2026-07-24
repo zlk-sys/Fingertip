@@ -18,6 +18,7 @@ from .meeting_interface import MeetingInterface
 from .multimedia_interface import MultimediaInterface
 from .sensor_interface import SensorInterface
 from .level_interface import LevelInterface
+from .drawing_interface import DrawingInterface
 from .setting_interface import SettingInterface
 from ..common.config import cfg
 from ..common.signal_bus import signalBus
@@ -39,12 +40,18 @@ class ModeProbeThread(QThread):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._running = False
+        self._paused = False
         self._client = None
         self._loop_thread = None
 
     def set_client(self, client, loop_thread):
         self._client = client
         self._loop_thread = loop_thread
+
+    def set_paused(self, paused: bool):
+        """Pause probing while a sensor-stream mode is running, otherwise the
+        probe's stop_sensor_report would kill the running data stream."""
+        self._paused = paused
 
     def stop(self):
         self._running = False
@@ -57,6 +64,9 @@ class ModeProbeThread(QThread):
         from ..sdk.ring_sound import DeviceError
 
         while self._running:
+            if self._paused:
+                self.msleep(200)
+                continue
             try:
                 start_info = self._loop_thread.run_coro(
                     start_sensor_report(self._client, timeout_s=5.0),
@@ -146,6 +156,7 @@ class MainWindow(FluentWindow):
         self.multimediaInterface = MultimediaInterface(self)
         self.sensorInterface = SensorInterface(self)
         self.levelInterface = LevelInterface(self)
+        self.drawingInterface = DrawingInterface(self)
         self.settingInterface = SettingInterface(self)
 
         # enable acrylic effect on navigation
@@ -156,6 +167,9 @@ class MainWindow(FluentWindow):
         self.modeProbeThread = ModeProbeThread(self)
         self.modeProbeThread.modeDetected.connect(self.modeIndicator.setMode)
         self._insertModeIndicator()
+
+        # Active sensor-stream modes (sensor/level/drawing)
+        self._activeStreamModes = set()
 
         self.connectSignalToSlot()
 
@@ -186,6 +200,10 @@ class MainWindow(FluentWindow):
         signalBus.deviceConnected.connect(self._onDeviceConnected)
         signalBus.deviceDisconnected.connect(self._onDeviceDisconnected)
 
+        # Mode mutual exclusion: pause probe while a stream mode is running
+        signalBus.modeStarted.connect(self._onModeStarted)
+        signalBus.modeStopped.connect(self._onModeStopped)
+
     def initNavigation(self):
         # add navigation items
         self.addSubInterface(self.homeInterface, FIF.HOME, self.tr('首页'))
@@ -195,6 +213,7 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.multimediaInterface, FIF.VIDEO, self.tr('追剧模式'))
         self.addSubInterface(self.sensorInterface, FIF.MOVE, self.tr('传感器'))
         self.addSubInterface(self.levelInterface, FIF.ROTATE, self.tr('水平仪'))
+        self.addSubInterface(self.drawingInterface, FIF.PENCIL_INK, self.tr('轨迹绘制'))
 
 
         # add settings to bottom
@@ -260,3 +279,17 @@ class MainWindow(FluentWindow):
         self.modeProbeThread.stop()
         self.modeProbeThread.wait(3000)
         self.modeIndicator.clear()
+        self._activeStreamModes.clear()
+        self.modeProbeThread.set_paused(False)
+
+    def _onModeStarted(self, mode: str):
+        if mode in ('sensor', 'level', 'drawing'):
+            self._activeStreamModes.add(mode)
+            self.modeProbeThread.set_paused(True)
+            # Stream started successfully => device must be in gesture mode
+            self.modeIndicator.setMode(MODE_GESTURE)
+
+    def _onModeStopped(self, mode: str):
+        self._activeStreamModes.discard(mode)
+        if not self._activeStreamModes:
+            self.modeProbeThread.set_paused(False)
