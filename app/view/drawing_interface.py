@@ -5,9 +5,17 @@ Maps the ring's gyroscope motion (air-mouse style) to a 2D canvas and draws
 the trace in real time. Two pen modes are supported:
   - 常落笔模式: the pen is always down, drawing starts immediately
   - 手动模式:   press the button (UI or ring single-click) to toggle pen up/down
+
+Calibration: capture the gravity direction at the moment of calibration.
+The canvas is the VERTICAL plane (perpendicular to the calibrated surface,
+like a whiteboard in front of the user): rotation about the true vertical
+axis (yaw) moves the pen horizontally, rotation about the in-canvas
+horizontal axis (pitch) moves it vertically.
 """
 import time
+from collections import deque
 
+import numpy as np
 import pyqtgraph as pg
 from PyQt5.QtCore import Qt, pyqtSignal, QThread
 from PyQt5.QtGui import QColor
@@ -16,8 +24,8 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
 from qfluentwidgets import (ScrollArea, FluentIcon, TitleLabel, BodyLabel,
                             StrongBodyLabel, CaptionLabel, SubtitleLabel,
                             SimpleCardWidget, TogglePushButton, IconWidget,
-                            PushButton, ComboBox, Slider, InfoBar,
-                            InfoBarPosition)
+                            PushButton, PrimaryPushButton, ComboBox, Slider,
+                            InfoBar, InfoBarPosition)
 from qfluentwidgets import FluentIcon as FIF
 
 from ..common.style_sheet import StyleSheet
@@ -110,8 +118,10 @@ class DrawingInterface(ScrollArea):
     # Emitted from the BLE thread when the ring button is single-clicked
     ringPressed = pyqtSignal()
 
-    CANVAS_RANGE = 100.0      # canvas extends from -RANGE to +RANGE
-    GYRO_DEADZONE_DPS = 2.0   # ignore tiny angular velocities (noise)
+    CANVAS_RANGE = 100.0        # canvas extends from -RANGE to +RANGE
+    GYRO_DEADZONE_DPS = 1.0     # ignore tiny angular velocities after bias removal
+    STILL_THRESHOLD_DPS = 3.0   # |w - bias| below this counts as "still"
+    LPF_ALPHA = 0.3             # EMA low-pass filter coefficient (0..1)
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
@@ -132,6 +142,24 @@ class DrawingInterface(ScrollArea):
         self._posY = 0.0
         self._lastTsMs = None
         self._gyroRangeDps = None
+
+        # Canvas calibration state. The canvas is a VERTICAL plane:
+        #   _axisVert  = true vertical axis (gravity dir in sensor frame),
+        #                yaw about it -> horizontal pen movement
+        #   _axisHoriz = in-canvas horizontal axis,
+        #                pitch about it -> vertical pen movement
+        # Default basis matches the uncalibrated air-mouse behaviour:
+        # dx from gyro_z (yaw), dy from gyro_y (pitch)
+        self._latestAccel = None                                      # raw accel vector
+        self._axisVert = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+        self._axisHoriz = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+        self._calibrated = False
+
+        # Filtering / gyro bias (still-position) calibration state
+        self._gyroBias = np.zeros(3, dtype=np.float64)   # gyro zero offset (dps)
+        self._wFilt = np.zeros(3, dtype=np.float64)      # low-pass filtered w (dps)
+        self._stillCount = 0                             # consecutive still samples
+        self._recentGyro = deque(maxlen=25)              # recent w samples (dps)
 
         # Strokes: each stroke is ([xs], [ys], PlotCurveItem)
         self._strokes = []
@@ -163,6 +191,11 @@ class DrawingInterface(ScrollArea):
         self.toggleBtn = TogglePushButton('开始绘制', self.statusCard)
         self.toggleBtn.setFixedWidth(140)
         self.toggleBtn.setEnabled(False)
+
+        self.calibrateBtn = PrimaryPushButton('校准画布', self.statusCard)
+        self.calibrateBtn.setFixedWidth(120)
+        self.calibrateBtn.setEnabled(False)
+        self.calibrateBtn.setToolTip('将戒指平放并保持静止后点击，同时校准画布方向与陀螺仪零偏')
 
         self._buildStatusCard()
 
@@ -210,7 +243,8 @@ class DrawingInterface(ScrollArea):
         # ── Canvas card ──────────────────────────────────────────
         self.canvasSection = SubtitleLabel('2D 画布', self.view)
         self.canvasHint = CaptionLabel(
-            '手动模式下：点击「落笔/抬笔」按钮或单击戒指按键切换笔的状态',
+            '手动模式下：点击「落笔/抬笔」按钮或单击戒指按键切换笔的状态；'
+            '校准：将戒指平放后点击「校准画布」，之后以垂直于该面的竖直面（如面前的白板）作为画布',
             self.view
         )
         self.canvasHint.setTextColor(QColor(96, 96, 96), QColor(180, 180, 180))
@@ -258,6 +292,7 @@ class DrawingInterface(ScrollArea):
         textLayout.addStretch(1)
         cardLayout.addLayout(textLayout)
         cardLayout.addStretch(1)
+        cardLayout.addWidget(self.calibrateBtn, 0, Qt.AlignVCenter)
         cardLayout.addWidget(self.toggleBtn, 0, Qt.AlignVCenter)
 
     def __initWidget(self):
@@ -289,6 +324,7 @@ class DrawingInterface(ScrollArea):
 
     def __connectSignals(self):
         self.toggleBtn.toggled.connect(self.__onToggleDrawing)
+        self.calibrateBtn.clicked.connect(self.__onCalibrate)
         self.modeCombo.currentIndexChanged.connect(self.__onModeChanged)
         self.penBtn.toggled.connect(self.__onPenBtnToggled)
         self.clearBtn.clicked.connect(self.__clearCanvas)
@@ -314,6 +350,7 @@ class DrawingInterface(ScrollArea):
         self._connected = False
         self.connectionHint.setText('请先在「连接戒指」页面连接设备')
         self.toggleBtn.setEnabled(False)
+        self.calibrateBtn.setEnabled(False)
         if self._active:
             self.__stopDrawing()
 
@@ -353,6 +390,12 @@ class DrawingInterface(ScrollArea):
         self._posY = 0.0
         self._lastTsMs = None
 
+        # Reset filtering / bias state
+        self._gyroBias = np.zeros(3, dtype=np.float64)
+        self._wFilt = np.zeros(3, dtype=np.float64)
+        self._stillCount = 0
+        self._recentGyro.clear()
+
         self._collector.set_client(client, loop_thread)
         self._collector.start()
 
@@ -363,6 +406,7 @@ class DrawingInterface(ScrollArea):
         self._active = True
         signalBus.modeStarted.emit('drawing')
         self._gyroRangeDps = getattr(start_info, 'gyro_range_dps', None) or 2000.0
+        self.calibrateBtn.setEnabled(True)
 
         self.statusLabel.setText('轨迹绘制中')
         self.statusLabel.setProperty('active', True)
@@ -380,9 +424,10 @@ class DrawingInterface(ScrollArea):
 
         InfoBar.success(
             '绘制已开启',
-            '常落笔模式：移动即绘制' if self._mode == 'always'
-            else '手动模式：按「落笔」按钮或单击戒指按键开始绘制',
-            parent=self.window(), duration=2000,
+            ('常落笔模式：移动即绘制' if self._mode == 'always'
+             else '手动模式：按「落笔」按钮或单击戒指按键开始绘制')
+            + '；建议先点击「校准画布」',
+            parent=self.window(), duration=3000,
             position=InfoBarPosition.TOP_RIGHT
         )
 
@@ -392,6 +437,7 @@ class DrawingInterface(ScrollArea):
         self._unregister_ring_handler()
         self.__setPenDown(False)
         self.penBtn.setEnabled(False)
+        self.calibrateBtn.setEnabled(False)
 
         self.statusLabel.setText('轨迹绘制已停止')
         self.statusLabel.setProperty('active', False)
@@ -492,15 +538,95 @@ class DrawingInterface(ScrollArea):
         if self._penDown:
             self.__beginStroke()
 
-    # ── Data processing ──────────────────────────────────────────
+    # ── Canvas calibration ────────────────────────────────
+
+    def __onCalibrate(self):
+        """Calibrate the canvas using the current ring attitude.
+
+        The gravity direction gives the true vertical axis; the canvas is
+        the vertical plane (perpendicular to the calibrated surface).
+        Yaw about the vertical axis -> horizontal movement; pitch about
+        the in-canvas horizontal axis -> vertical movement.
+        """
+        if self._latestAccel is None:
+            InfoBar.warning(
+                '暂无数据', '请先开始绘制并等待传感器数据到达',
+                parent=self.window(), duration=2000,
+                position=InfoBarPosition.TOP_RIGHT
+            )
+            return
+
+        norm = np.linalg.norm(self._latestAccel)
+        if norm < 0.1:
+            InfoBar.warning(
+                '数据无效', '加速度太小，无法校准，请保持戒指静止后重试',
+                parent=self.window(), duration=2000,
+                position=InfoBarPosition.TOP_RIGHT
+            )
+            return
+
+        # True vertical axis = gravity direction in the sensor frame;
+        # yaw about it moves the pen horizontally on the vertical canvas
+        v = self._latestAccel / norm
+
+        # In-canvas horizontal axis: project device Y axis onto the
+        # horizontal plane (perpendicular to gravity); fall back to device
+        # X axis if Y is (nearly) parallel to the vertical axis
+        h = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+        h = h - np.dot(h, v) * v
+        if np.linalg.norm(h) < 0.2:
+            h = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+            h = h - np.dot(h, v) * v
+        h = h / np.linalg.norm(h)
+
+        self._axisVert = v
+        self._axisHoriz = h
+        self._calibrated = True
+
+        # Still-position gyro bias calibration: if the ring has been held
+        # still, use the recent samples' mean as the gyro zero offset
+        bias_done = False
+        if len(self._recentGyro) >= 10:
+            arr = np.array(self._recentGyro)
+            if float(arr.std(axis=0).max()) < 5.0:
+                self._gyroBias = arr.mean(axis=0)
+                self._wFilt = np.zeros(3, dtype=np.float64)
+                self._stillCount = 0
+                bias_done = True
+
+        # Restart drawing from canvas center on the new plane
+        self._posX = 0.0
+        self._posY = 0.0
+        self._cursorItem.setData([0.0], [0.0])
+        if self._penDown:
+            self.__beginStroke()
+
+        msg = '已以垂直于当前面的竖直面作为画布，光标已归中'
+        if bias_done:
+            msg += '；已完成陀螺仪静止零偏校准'
+        else:
+            msg += '；未能校准零偏（校准时请保持戒指静止）'
+        InfoBar.success(
+            '校准完成', msg,
+            parent=self.window(), duration=2500,
+            position=InfoBarPosition.TOP_RIGHT
+        )
+
+    # ── Data processing ──────────────────────────────────────
 
     def __onBatchReceived(self, batch):
         gain = self.sensitivitySlider.value() * 0.02
         rng = self._gyroRangeDps or 2000.0
         scale = rng / 32768.0
+        n, u = self._axisVert, self._axisHoriz
         updated = False
 
         for sample in batch.samples:
+            # Keep latest accel vector for canvas calibration
+            self._latestAccel = np.array(
+                [sample.accel_x, sample.accel_y, sample.accel_z],
+                dtype=np.float64)
+
             ts = sample.timestamp_ms
             if self._lastTsMs is None:
                 self._lastTsMs = ts
@@ -510,16 +636,40 @@ class DrawingInterface(ScrollArea):
             if dt <= 0 or dt > 0.5:
                 continue
 
-            # Air-mouse mapping: yaw (gyro_z) -> horizontal, pitch (gyro_y) -> vertical
-            gz = sample.gyro_z * scale
-            gy = sample.gyro_y * scale
-            if abs(gz) < self.GYRO_DEADZONE_DPS:
-                gz = 0.0
-            if abs(gy) < self.GYRO_DEADZONE_DPS:
-                gy = 0.0
+            # Angular velocity (dps) in the sensor frame
+            w_raw = np.array(
+                [sample.gyro_x, sample.gyro_y, sample.gyro_z],
+                dtype=np.float64) * scale
+            self._recentGyro.append(w_raw)
 
-            dx = -gz * dt * gain * 10.0
-            dy = -gy * dt * gain * 10.0
+            # Auto still-position bias tracking: while the ring is (nearly)
+            # still, slowly follow the readings to learn the gyro zero
+            # offset. Converges faster during the initial still period.
+            if np.linalg.norm(w_raw - self._gyroBias) < self.STILL_THRESHOLD_DPS:
+                self._stillCount += 1
+                beta = 0.1 if self._stillCount <= 50 else 0.02
+                self._gyroBias = (1.0 - beta) * self._gyroBias + beta * w_raw
+            else:
+                self._stillCount = 0
+
+            # Remove bias, then EMA low-pass filter to smooth the stroke
+            w = w_raw - self._gyroBias
+            self._wFilt = self.LPF_ALPHA * w + (1.0 - self.LPF_ALPHA) * self._wFilt
+
+            # Project onto the calibrated axes:
+            # yaw about the true vertical axis -> horizontal movement,
+            # pitch about the in-canvas horizontal axis -> vertical movement
+            # (vertical canvas, air-mouse model). Default axes (Z, Y) match
+            # the uncalibrated mapping: dx from gyro_z, dy from gyro_y.
+            wn = float(np.dot(self._wFilt, n))
+            wu = float(np.dot(self._wFilt, u))
+            if abs(wn) < self.GYRO_DEADZONE_DPS:
+                wn = 0.0
+            if abs(wu) < self.GYRO_DEADZONE_DPS:
+                wu = 0.0
+
+            dx = -wn * dt * gain * 10.0
+            dy = -wu * dt * gain * 10.0
             if dx == 0.0 and dy == 0.0:
                 continue
 
