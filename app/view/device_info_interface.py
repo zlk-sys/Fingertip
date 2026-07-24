@@ -1,4 +1,6 @@
 # coding: utf-8
+from datetime import datetime, timezone
+
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout
@@ -216,6 +218,9 @@ class DeviceInfoInterface(ScrollArea):
         self.firmwareCard = DetailItemCard('--', '固件版本', self.view)
         self.modelCard = DetailItemCard('--', '设备型号', self.view)
         self.snCard = DetailItemCard('--', '序列号(S/N)', self.view)
+        self.cpuidCard = DetailItemCard('--', 'CPU ID', self.view)
+        self.timeCard = DetailItemCard('--', '系统时间', self.view)
+        self.chargingCard = DetailItemCard('--', '充电状态', self.view)
 
         self.detailGrid = QGridLayout()
         self.detailGrid.setSpacing(12)
@@ -223,6 +228,9 @@ class DeviceInfoInterface(ScrollArea):
         self.detailGrid.addWidget(self.firmwareCard, 0, 1)
         self.detailGrid.addWidget(self.modelCard, 1, 0)
         self.detailGrid.addWidget(self.snCard, 1, 1)
+        self.detailGrid.addWidget(self.cpuidCard, 2, 0)
+        self.detailGrid.addWidget(self.timeCard, 2, 1)
+        self.detailGrid.addWidget(self.chargingCard, 3, 0)
 
         self.__initWidget()
         self.__connectSignalToSlot()
@@ -271,6 +279,9 @@ class DeviceInfoInterface(ScrollArea):
         self.firmwareCard.setValue('--')
         self.modelCard.setValue('--')
         self.snCard.setValue('--')
+        self.cpuidCard.setValue('--')
+        self.timeCard.setValue('--')
+        self.chargingCard.setValue('--')
         self.refreshBtn.setEnabled(False)
 
     def __onDeviceConnected(self, name, address):
@@ -309,6 +320,21 @@ class DeviceInfoInterface(ScrollArea):
         self.firmwareCard.setValue(getattr(info, 'firmware_version', '--'))
         self.modelCard.setValue(getattr(info, 'model', '--'))
         self.snCard.setValue(getattr(info, 'sn', '--'))
+        self.cpuidCard.setValue(getattr(info, 'cpuid', '--'))
+
+        system_time = getattr(info, 'system_time', 0)
+        if system_time:
+            try:
+                dt = datetime.fromtimestamp(system_time, tz=timezone.utc)
+                time_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+            except Exception:
+                time_str = str(system_time)
+        else:
+            time_str = '--'
+        self.timeCard.setValue(time_str)
+
+        charging = getattr(info, 'battery_charging', False)
+        self.chargingCard.setValue('充电中' if charging else '未充电')
 
     def __onReconnect(self):
         InfoBar.info('重新连接', '请前往「连接戒指」页面重新连接',
