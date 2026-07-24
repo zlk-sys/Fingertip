@@ -23,3 +23,17 @@ QScrollArea {
     border: 1px solid rgba(255, 255, 255, 16);
     border-radius: 8px;
 }
+
+#alertBanner {
+    background-color: #3b2020;
+    border: 1px solid #5a3333;
+}
+
+#alertBanner BodyLabel {
+    color: #ff7875;
+    background-color: transparent;
+}
+
+#reconnectBtn {
+    color: #ff7875;
+}

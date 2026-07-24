@@ -18,5 +18,6 @@ class SignalBus(QObject):
     # navigation
     switchToMeeting = pyqtSignal()
     switchToMultimedia = pyqtSignal()
+    switchToConnect = pyqtSignal()
 
 signalBus = SignalBus()

@@ -508,7 +508,7 @@ class ConnectInterface(ScrollArea):
         self.scanBtn.setEnabled(False)
         self.progressBar.setVisible(True)
         self.progressBar.start()
-        self.statusLabel.setText(f'正在连接 {name}...')
+        self.__setStatus(f'正在连接 {name}...')
 
         thread = ConnectThread(address, self._asyncLoopThread, parent=self)
         thread.connected.connect(self.__onConnected)
@@ -521,7 +521,7 @@ class ConnectInterface(ScrollArea):
         self.progressBar.stop()
         self.progressBar.setVisible(False)
         self._client = client
-        self.statusLabel.setText('已连接')
+        self.__setStatus('已连接', 'success')
         self.disconnectBtn.setEnabled(True)
         self.scanBtn.setEnabled(True)
 
@@ -538,7 +538,7 @@ class ConnectInterface(ScrollArea):
     def __onConnectError(self, error_msg):
         self.progressBar.stop()
         self.progressBar.setVisible(False)
-        self.statusLabel.setText('连接失败')
+        self.__setStatus('连接失败', 'error')
         self.scanBtn.setEnabled(True)
         InfoBar.error('连接失败', error_msg,
                       parent=self.window(), duration=4000,
@@ -552,7 +552,7 @@ class ConnectInterface(ScrollArea):
         self.disconnectBtn.setEnabled(False)
         self.progressBar.setVisible(True)
         self.progressBar.start()
-        self.statusLabel.setText('正在断开...')
+        self.__setStatus('正在断开...')
 
         thread = DisconnectThread(self._client, self._asyncLoopThread, parent=self)
         thread.disconnected.connect(self.__onDisconnected)
@@ -567,7 +567,7 @@ class ConnectInterface(ScrollArea):
         self._client = None
         self._deviceName = None
         self._deviceAddress = None
-        self.statusLabel.setText('未连接')
+        self.__setStatus('未连接')
         self.disconnectBtn.setEnabled(False)
 
         # Clear shared client
@@ -582,7 +582,7 @@ class ConnectInterface(ScrollArea):
     def __onDisconnectError(self, error_msg):
         self.progressBar.stop()
         self.progressBar.setVisible(False)
-        self.statusLabel.setText('断开失败')
+        self.__setStatus('断开失败', 'error')
         self.disconnectBtn.setEnabled(True)
 
     # ── System Info ─────────────────────────────────────────────
@@ -622,3 +622,15 @@ class ConnectInterface(ScrollArea):
     def __threadDone(self, thread):
         if thread in self._threads:
             self._threads.remove(thread)
+
+    def __setStatus(self, text, state=None):
+        """Update status label text and color.
+        state: None (default), 'success' (green), 'error' (red).
+        """
+        self.statusLabel.setText(text)
+        if state == 'success':
+            self.statusLabel.setTextColor(QColor(0, 180, 42), QColor(0, 180, 42))
+        elif state == 'error':
+            self.statusLabel.setTextColor(QColor(207, 19, 34), QColor(255, 120, 117))
+        else:
+            self.statusLabel.setTextColor()

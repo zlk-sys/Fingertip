@@ -201,7 +201,7 @@ class DeviceInfoInterface(ScrollArea):
 
         # big stat cards
         self.storageCard = ProgressCard(
-            FIF.FOLDER, '存储空间', '--', '/ --', 0, self.view)
+            FIF.FOLDER, '剩余存储', '--', '/ --', 0, self.view)
         self.batteryCard = ProgressCard(
             FIF.POWER_BUTTON, '电量', '--', '%', 0, self.view)
 
@@ -309,13 +309,12 @@ class DeviceInfoInterface(ScrollArea):
 
         total = getattr(info, 'audio_storage_total', 0)
         avail = getattr(info, 'audio_storage_available', 0)
-        used = max(0, total - avail)
-        percent = (used / total * 100) if total else 0
+        percent = (avail / total * 100) if total else 0
         mb = 1024 * 1024
         total_mb = total / mb
-        used_mb = used / mb
+        avail_mb = avail / mb
         self.storageCard.setValue(
-            f'{used_mb:.1f}', f'/ {total_mb:.1f} MB', min(100, percent))
+            f'{avail_mb:.1f}', f'/ {total_mb:.1f} MB', min(100, percent))
 
         self.firmwareCard.setValue(getattr(info, 'firmware_version', '--'))
         self.modelCard.setValue(getattr(info, 'model', '--'))

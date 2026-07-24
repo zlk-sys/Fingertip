@@ -8,7 +8,6 @@ class StyleSheet(StyleSheetBase, Enum):
     """ Style sheet  """
 
     HOME_INTERFACE = "home_interface"
-    BASIC_INTERFACE = "basic_interface"
     SETTING_INTERFACE = "setting_interface"
     CONNECT_INTERFACE = "connect_interface"
     DEVICE_INFO_INTERFACE = "device_info_interface"

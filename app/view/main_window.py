@@ -18,7 +18,6 @@ from .meeting_interface import MeetingInterface
 from .multimedia_interface import MultimediaInterface
 from .sensor_interface import SensorInterface
 from .level_interface import LevelInterface
-from .basic_interface import BasicInterface
 from .setting_interface import SettingInterface
 from ..common.config import cfg
 from ..common.signal_bus import signalBus
@@ -147,7 +146,6 @@ class MainWindow(FluentWindow):
         self.multimediaInterface = MultimediaInterface(self)
         self.sensorInterface = SensorInterface(self)
         self.levelInterface = LevelInterface(self)
-        self.basicInterface = BasicInterface(self)
         self.settingInterface = SettingInterface(self)
 
         # enable acrylic effect on navigation
@@ -181,6 +179,8 @@ class MainWindow(FluentWindow):
             lambda: self.switchTo(self.meetingInterface))
         signalBus.switchToMultimedia.connect(
             lambda: self.switchTo(self.multimediaInterface))
+        signalBus.switchToConnect.connect(
+            lambda: self.switchTo(self.connectInterface))
 
         # Device connect/disconnect for mode probe
         signalBus.deviceConnected.connect(self._onDeviceConnected)
@@ -189,8 +189,7 @@ class MainWindow(FluentWindow):
     def initNavigation(self):
         # add navigation items
         self.addSubInterface(self.homeInterface, FIF.HOME, self.tr('首页'))
-        self.addSubInterface(self.connectInterface, FIF.CONNECT, self.tr('连接戒指'))
-        self.addSubInterface(self.deviceInfoInterface, FIF.PHONE, self.tr('设备'))
+        self.addSubInterface(self.deviceInfoInterface, FIF.DEVELOPER_TOOLS, self.tr('设备'))
         self.addSubInterface(self.meetingInterface, FIF.MUTE, self.tr('会议模式'))
         self.addSubInterface(self.multimediaInterface, FIF.VIDEO, self.tr('追剧模式'))
         self.addSubInterface(self.sensorInterface, FIF.MOVE, self.tr('传感器'))
@@ -198,11 +197,8 @@ class MainWindow(FluentWindow):
 
         self.navigationInterface.addSeparator()
 
-        self.addSubInterface(
-            self.basicInterface, FIF.CHECKBOX, self.tr('基础组件'),
-            NavigationItemPosition.SCROLL)
-
         # add settings to bottom
+        self.addSubInterface(self.connectInterface, FIF.CONNECT, self.tr('连接戒指'), NavigationItemPosition.BOTTOM)
         self.addSubInterface(
             self.settingInterface, FIF.SETTING, self.tr('设置'),
             NavigationItemPosition.BOTTOM)

@@ -12,6 +12,53 @@ from qfluentwidgets import (ScrollArea, isDarkTheme, FluentIcon, PushButton,
 
 from ..common.style_sheet import StyleSheet
 from ..common.signal_bus import signalBus
+from qfluentwidgets import FluentIcon as FIF
+
+
+class AlertBanner(SimpleCardWidget):
+    """Alert banner for connection/battery warnings."""
+
+    reconnectClicked = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName('alertBanner')
+        self.setBorderRadius(12)
+        self.setFixedHeight(56)
+        self.setCursor(Qt.PointingHandCursor)
+
+        self.iconWidget = IconWidget(FIF.INFO, self)
+        self.iconWidget.setFixedSize(20, 20)
+        self.messageLabel = BodyLabel('未获取到电量，可能连接异常', self)
+        self.reconnectBtn = HyperlinkButton('', '重新连接', self)
+        self.reconnectBtn.setObjectName('reconnectBtn')
+
+        self.hBoxLayout = QHBoxLayout(self)
+        self.hBoxLayout.setContentsMargins(16, 0, 16, 0)
+        self.hBoxLayout.setSpacing(10)
+        self.hBoxLayout.addWidget(self.iconWidget)
+        self.hBoxLayout.addWidget(self.messageLabel)
+        self.hBoxLayout.addStretch(1)
+        self.hBoxLayout.addWidget(self.reconnectBtn)
+
+        self.reconnectBtn.clicked.connect(self.reconnectClicked.emit)
+
+    def setConnected(self, connected):
+        if connected:
+            self.setVisible(False)
+        else:
+            self.setVisible(True)
+            self.messageLabel.setText('未连接设备，请前往「连接戒指」页面连接')
+            self.reconnectBtn.setVisible(False)
+
+    def setBatteryMissing(self):
+        self.setVisible(True)
+        self.messageLabel.setText('未获取到电量，可能连接异常')
+        self.reconnectBtn.setVisible(True)
+
+    def mouseReleaseEvent(self, e):
+        super().mouseReleaseEvent(e)
+        self.reconnectClicked.emit()
 
 
 class BannerWidget(QWidget):
@@ -24,21 +71,23 @@ class BannerWidget(QWidget):
         self.vBoxLayout = QVBoxLayout(self)
         self.titleLabel = TitleLabel(f'{self.get_time_period()}好，我是Fingertip👋', self)
         self.subtitleLabel = BodyLabel('指尖控万物', self)
-        self.connectStatus = BodyLabel('当前尚未连接戒指，快去连接以开启智慧生活', self)
+        self.connectStatus = AlertBanner(self)
+        self.connectStatus.messageLabel.setText('当前尚未连接戒指，快去连接以开启智慧生活')
+        self.connectStatus.reconnectBtn.setText('去连接')
+        self.connectStatus.reconnectBtn.setVisible(True)
 
         self.vBoxLayout.setSpacing(0)
         self.vBoxLayout.setContentsMargins(36, 40, 36, 20)
         self.vBoxLayout.addWidget(self.titleLabel)
         self.vBoxLayout.addSpacing(8)
         self.vBoxLayout.addWidget(self.subtitleLabel)
-        self.vBoxLayout.addSpacing(8)
+        self.vBoxLayout.addSpacing(12)
         self.vBoxLayout.addWidget(self.connectStatus)
 
         self.vBoxLayout.setAlignment(Qt.AlignLeft | Qt.AlignTop)
 
         self.titleLabel.setObjectName('titleLabel')
         self.subtitleLabel.setObjectName('subtitleLabel')
-        self.connectStatus.setObjectName('connectStatus')
 
     def paintEvent(self, e):
         super().paintEvent(e)
@@ -90,10 +139,13 @@ class BannerWidget(QWidget):
             return "深夜"
 
     def onDeviceConnected(self, name: str, address: str):
-        self.connectStatus.setText(f'已连接: {name} ({address})')
+        self.connectStatus.setVisible(False)
 
     def onDeviceDisconnected(self):
-        self.connectStatus.setText('当前尚未连接戒指，快去连接以开启智慧生活')
+        self.connectStatus.messageLabel.setText('当前尚未连接戒指，快去连接以开启智慧生活')
+        self.connectStatus.reconnectBtn.setText('去连接')
+        self.connectStatus.reconnectBtn.setVisible(True)
+        self.connectStatus.setVisible(True)
 
 
 class ModeCard(SimpleCardWidget):
@@ -148,6 +200,8 @@ class HomeInterface(ScrollArea):
     def __connectSignals(self):
         signalBus.deviceConnected.connect(self.banner.onDeviceConnected)
         signalBus.deviceDisconnected.connect(self.banner.onDeviceDisconnected)
+        self.banner.connectStatus.reconnectClicked.connect(
+            lambda: signalBus.switchToConnect.emit())
 
     def __initWidget(self):
         self.view.setObjectName('view')

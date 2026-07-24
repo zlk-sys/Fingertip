@@ -1,6 +1,6 @@
 {
     "Material": {
-        "AcrylicBlurRadius": 11
+        "AcrylicBlurRadius": 15
     },
     "Update": {
         "CheckUpdateAtStartUp": true
@@ -11,7 +11,7 @@
     "MainWindow": {
         "DpiScale": "Auto",
         "Language": "Auto",
-        "MicaEnabled": false
+        "MicaEnabled": true
     },
     "QFluentWidgets": {
         "FontFamilies": [
@@ -19,7 +19,7 @@
             "Microsoft YaHei",
             "PingFang SC"
         ],
-        "ThemeColor": "#ff1556aa",
+        "ThemeColor": "#ff009faa",
         "ThemeMode": "Light"
     }
 }
