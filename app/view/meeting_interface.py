@@ -94,7 +94,7 @@ class MeetingInterface(ScrollArea):
         self._handlers_registered = False
 
         # Title
-        self.titleLabel = TitleLabel('会议模式', self.view)
+        self.titleLabel = TitleLabel('翻页模式', self.view)
         self.subtitleLabel = BodyLabel('使用戒指按钮控制 PPT 翻页', self.view)
 
         # Status card
@@ -102,8 +102,8 @@ class MeetingInterface(ScrollArea):
         self.statusCard.setBorderRadius(12)
         self.statusCard.setFixedHeight(100)
 
-        self.statusIcon = IconWidget(FIF.MUTE, self.statusCard)
-        self.statusIcon.setFixedSize(40, 40)
+        # self.statusIcon = IconWidget(FIF.MUTE, self.statusCard)
+        # self.statusIcon.setFixedSize(40, 40)
         self.statusLabel = StrongBodyLabel('会议模式未开启', self.statusCard)
         self.statusLabel.setObjectName('meetingStatusLabel')
         self.statusLabel.setProperty('active', False)
@@ -155,7 +155,7 @@ class MeetingInterface(ScrollArea):
         cardLayout.setContentsMargins(20, 16, 20, 16)
         cardLayout.setSpacing(16)
 
-        cardLayout.addWidget(self.statusIcon)
+        # cardLayout.addWidget(self.statusIcon)
 
         textLayout = QVBoxLayout()
         textLayout.setSpacing(4)
@@ -228,7 +228,7 @@ class MeetingInterface(ScrollArea):
         self.statusLabel.setText('会议模式已开启 - 监听中')
         self.statusLabel.setProperty('active', True)
         self.toggleBtn.setText('关闭会议模式')
-        self.statusIcon.setIcon(FIF.MUTE)
+        # self.statusIcon.setIcon(FIF.MUTE)
 
         # Refresh stylesheet for property change
         self.statusLabel.style().unpolish(self.statusLabel)

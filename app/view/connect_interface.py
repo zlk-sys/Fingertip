@@ -299,6 +299,7 @@ class ConnectInterface(ScrollArea):
         self._displayDevices = []
         self._currentPage = 0
         self._scanThread = None
+        self._pendingConnect = None   # (address, name) waiting for scan to stop
         self._deviceName = None
         self._deviceAddress = None
         self._asyncLoopThread = AsyncLoopThread(self)
@@ -410,6 +411,14 @@ class ConnectInterface(ScrollArea):
             self._scanThread = None
         self.scanBtn.setText('扫描戒指')
 
+        # A connect request was queued while waiting for the scan to stop:
+        # start it now that the adapter is free (scan/connect concurrency
+        # on Windows hurts connection success rate)
+        if self._pendingConnect is not None:
+            address, name = self._pendingConnect
+            self._pendingConnect = None
+            self.__startConnect(address, name)
+
     def __renderDeviceList(self, devices):
         """Sort devices, update pager and render the current page."""
         if not devices:
@@ -503,6 +512,21 @@ class ConnectInterface(ScrollArea):
     # ── Connect ─────────────────────────────────────────────────
 
     def __onConnectDevice(self, address, name):
+        # Stop the continuous scan first: on Windows, scanning and
+        # connecting at the same time significantly lowers the connection
+        # success rate. Queue the request and connect once the scan stops.
+        if self._scanThread and self._scanThread.isRunning():
+            self._pendingConnect = (address, name)
+            self._scanThread.stop()
+            self.scanBtn.setEnabled(False)
+            self.progressBar.setVisible(True)
+            self.progressBar.start()
+            self.__setStatus(f'正在停止扫描，随后连接 {name}...')
+            return
+
+        self.__startConnect(address, name)
+
+    def __startConnect(self, address, name):
         self._deviceAddress = address
         self._deviceName = name
         self.scanBtn.setEnabled(False)

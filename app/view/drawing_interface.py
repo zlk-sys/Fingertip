@@ -123,6 +123,16 @@ class DrawingInterface(ScrollArea):
     STILL_THRESHOLD_DPS = 3.0   # |w - bias| below this counts as "still"
     LPF_ALPHA = 0.3             # EMA low-pass filter coefficient (0..1)
 
+    # Direction (wear-orientation) calibration parameters
+    DIRCAL_MOTION_DPS = 15.0    # samples above this count as intentional motion
+    DIRCAL_MIN_SAMPLES = 5      # minimum motion samples needed to settle
+    DIRCAL_MAX_SAMPLES = 80     # settle immediately once this many collected
+    DIRCAL_END_DPS = 8.0        # motion is considered over below this
+    DIRCAL_END_SAMPLES = 5      # consecutive low samples ending the swing
+    DIRCAL_STILL_DPS = 5.0      # "hold still" threshold between the two steps
+    DIRCAL_STILL_SAMPLES = 10   # consecutive still samples required
+    DIRCAL_TIMEOUT_S = 8.0      # per-step timeout
+
     def __init__(self, parent=None):
         super().__init__(parent=parent)
 
@@ -161,6 +171,15 @@ class DrawingInterface(ScrollArea):
         self._stillCount = 0                             # consecutive still samples
         self._recentGyro = deque(maxlen=25)              # recent w samples (dps)
 
+        # Direction (wear-orientation) calibration state machine:
+        # None / 'right' / 'wait_still' / 'up'
+        self._dirCalStage = None
+        self._dirCalSamples = []
+        self._dirCalRightAxis = None
+        self._dirCalStillCount = 0
+        self._dirCalEndCount = 0
+        self._dirCalStartTime = 0.0
+
         # Strokes: each stroke is ([xs], [ys], PlotCurveItem)
         self._strokes = []
         self._currentStroke = None
@@ -196,6 +215,11 @@ class DrawingInterface(ScrollArea):
         self.calibrateBtn.setFixedWidth(120)
         self.calibrateBtn.setEnabled(False)
         self.calibrateBtn.setToolTip('将戒指平放并保持静止后点击，同时校准画布方向与陀螺仪零偏')
+
+        self.dirCalBtn = PushButton('方向校准', self.statusCard)
+        self.dirCalBtn.setFixedWidth(110)
+        self.dirCalBtn.setEnabled(False)
+        self.dirCalBtn.setToolTip('按提示先向右、再向上挥动戒指，适配不同佩戴方向的上下左右')
 
         self._buildStatusCard()
 
@@ -244,7 +268,7 @@ class DrawingInterface(ScrollArea):
         self.canvasSection = SubtitleLabel('2D 画布', self.view)
         self.canvasHint = CaptionLabel(
             '手动模式下：点击「落笔/抬笔」按钮或单击戒指按键切换笔的状态；'
-            '校准：将戒指平放后点击「校准画布」，之后以垂直于该面的竖直面（如面前的白板）作为画布',
+            '建议开始后先点「方向校准」，按提示向右、向上挥动戒指，以适配你的佩戴方向',
             self.view
         )
         self.canvasHint.setTextColor(QColor(96, 96, 96), QColor(180, 180, 180))
@@ -292,6 +316,7 @@ class DrawingInterface(ScrollArea):
         textLayout.addStretch(1)
         cardLayout.addLayout(textLayout)
         cardLayout.addStretch(1)
+        cardLayout.addWidget(self.dirCalBtn, 0, Qt.AlignVCenter)
         cardLayout.addWidget(self.calibrateBtn, 0, Qt.AlignVCenter)
         cardLayout.addWidget(self.toggleBtn, 0, Qt.AlignVCenter)
 
@@ -325,6 +350,7 @@ class DrawingInterface(ScrollArea):
     def __connectSignals(self):
         self.toggleBtn.toggled.connect(self.__onToggleDrawing)
         self.calibrateBtn.clicked.connect(self.__onCalibrate)
+        self.dirCalBtn.clicked.connect(self.__onDirCalClicked)
         self.modeCombo.currentIndexChanged.connect(self.__onModeChanged)
         self.penBtn.toggled.connect(self.__onPenBtnToggled)
         self.clearBtn.clicked.connect(self.__clearCanvas)
@@ -351,6 +377,8 @@ class DrawingInterface(ScrollArea):
         self.connectionHint.setText('请先在「连接戒指」页面连接设备')
         self.toggleBtn.setEnabled(False)
         self.calibrateBtn.setEnabled(False)
+        self.dirCalBtn.setEnabled(False)
+        self.__cancelDirCal(silent=True)
         if self._active:
             self.__stopDrawing()
 
@@ -407,6 +435,7 @@ class DrawingInterface(ScrollArea):
         signalBus.modeStarted.emit('drawing')
         self._gyroRangeDps = getattr(start_info, 'gyro_range_dps', None) or 2000.0
         self.calibrateBtn.setEnabled(True)
+        self.dirCalBtn.setEnabled(True)
 
         self.statusLabel.setText('轨迹绘制中')
         self.statusLabel.setProperty('active', True)
@@ -438,6 +467,8 @@ class DrawingInterface(ScrollArea):
         self.__setPenDown(False)
         self.penBtn.setEnabled(False)
         self.calibrateBtn.setEnabled(False)
+        self.dirCalBtn.setEnabled(False)
+        self.__cancelDirCal(silent=True)
 
         self.statusLabel.setText('轨迹绘制已停止')
         self.statusLabel.setProperty('active', False)
@@ -612,6 +643,206 @@ class DrawingInterface(ScrollArea):
             position=InfoBarPosition.TOP_RIGHT
         )
 
+    # ── Direction (wear-orientation) calibration ────────────
+
+    def __onDirCalClicked(self):
+        """Start or cancel the guided direction calibration.
+
+        The user is asked to swing the ring RIGHT, hold still, then swing
+        UP. The dominant rotation axes of the two motions directly define
+        the canvas mapping, so the drawing directions match the user's
+        intuition regardless of how the ring is worn.
+        """
+        if self._dirCalStage is not None:
+            self.__cancelDirCal()
+            return
+        if not self._active:
+            return
+
+        self.__setPenDown(False)
+        self._dirCalStage = 'right'
+        self._dirCalSamples = []
+        self._dirCalRightAxis = None
+        self._dirCalStillCount = 0
+        self._dirCalEndCount = 0
+        self._dirCalStartTime = time.monotonic()
+        self.dirCalBtn.setText('取消校准')
+        self.calibrateBtn.setEnabled(False)
+        self.statusLabel.setText('方向校准 1/2：请向右挥动戒指')
+        InfoBar.info(
+            '方向校准开始', '第 1 步：请将戒指向右挥动一下（快挥、慢挥均可）',
+            parent=self.window(), duration=3000,
+            position=InfoBarPosition.TOP_RIGHT
+        )
+
+    def __cancelDirCal(self, silent=False):
+        """Reset the direction calibration state machine."""
+        was_running = self._dirCalStage is not None
+        self._dirCalStage = None
+        self._dirCalSamples = []
+        self._dirCalRightAxis = None
+        self._dirCalStillCount = 0
+        self._dirCalEndCount = 0
+        self.dirCalBtn.setText('方向校准')
+        if silent or not was_running:
+            return
+        self.calibrateBtn.setEnabled(self._active)
+        self.statusLabel.setText('轨迹绘制中' if self._active else '轨迹绘制未开启')
+        InfoBar.info(
+            '已取消', '方向校准已取消',
+            parent=self.window(), duration=2000,
+            position=InfoBarPosition.TOP_RIGHT
+        )
+
+    def __processDirCalSample(self, w):
+        """Feed one bias-removed gyro sample (dps) to the calibration
+        state machine. Returns True while calibration is consuming data."""
+        stage = self._dirCalStage
+        if stage is None:
+            return False
+
+        now = time.monotonic()
+        if now - self._dirCalStartTime > self.DIRCAL_TIMEOUT_S:
+            # Be lenient: if we already caught part of a swing, use it
+            if stage in ('right', 'up') and len(self._dirCalSamples) >= self.DIRCAL_MIN_SAMPLES:
+                self.__settleDirCalStage(now)
+            else:
+                self.__finishDirCal(False, '未检测到有效挥动，请重试（挥动一下即可）')
+            return True
+
+        mag = float(np.linalg.norm(w))
+
+        if stage == 'wait_still':
+            if mag < self.DIRCAL_STILL_DPS:
+                self._dirCalStillCount += 1
+            else:
+                self._dirCalStillCount = 0
+            if self._dirCalStillCount >= self.DIRCAL_STILL_SAMPLES:
+                self._dirCalSamples = []
+                self._dirCalEndCount = 0
+                self._dirCalStage = 'up'
+                self._dirCalStartTime = now
+                self.statusLabel.setText('方向校准 2/2：请向上挥动戒指')
+                InfoBar.info(
+                    '很好！', '第 2 步：请将戒指向上挥动一下',
+                    parent=self.window(), duration=3000,
+                    position=InfoBarPosition.TOP_RIGHT
+                )
+            return True
+
+        # stage in ('right', 'up'): collect one swing, settle when it ends
+        if mag >= self.DIRCAL_MOTION_DPS:
+            self._dirCalSamples.append(w.copy())
+            self._dirCalEndCount = 0
+            if len(self._dirCalSamples) >= self.DIRCAL_MAX_SAMPLES:
+                self.__settleDirCalStage(now)
+            return True
+
+        # Below motion threshold: if a swing was in progress, check whether
+        # it has ended so a single quick flick is enough to settle the stage
+        if self._dirCalSamples:
+            if mag < self.DIRCAL_END_DPS:
+                self._dirCalEndCount += 1
+            else:
+                self._dirCalEndCount = 0
+            if (self._dirCalEndCount >= self.DIRCAL_END_SAMPLES
+                    and len(self._dirCalSamples) >= self.DIRCAL_MIN_SAMPLES):
+                self.__settleDirCalStage(now)
+        return True
+
+    def __settleDirCalStage(self, now):
+        """Compute the dominant rotation axis of the collected swing and
+        advance the state machine.
+
+        A quick flick usually contains a return swing whose rotation is
+        opposite; averaging everything would cancel out. We therefore keep
+        only samples consistent with the peak-magnitude sample (the initial
+        stroke) and use a magnitude-weighted mean.
+        """
+        arr = np.array(self._dirCalSamples)
+        self._dirCalSamples = []
+        self._dirCalEndCount = 0
+
+        mags = np.linalg.norm(arr, axis=1)
+        peak = arr[int(np.argmax(mags))]
+        keep = arr[arr @ peak > 0.0]
+        if len(keep) == 0:
+            self.__finishDirCal(False, '未检测到一致的转动方向，请重试')
+            return
+
+        mean = keep.sum(axis=0)  # samples already magnitude-weighted
+        mean_norm = float(np.linalg.norm(mean))
+        if mean_norm < 1e-6:
+            self.__finishDirCal(False, '未检测到一致的转动方向，请重试')
+            return
+        axis = mean / mean_norm
+
+        if self._dirCalStage == 'right':
+            self._dirCalRightAxis = axis
+            self._dirCalStillCount = 0
+            self._dirCalStage = 'wait_still'
+            self._dirCalStartTime = now
+            self.statusLabel.setText('方向校准：请保持戒指静止…')
+        else:
+            self.__applyDirCal(axis)
+
+    def __applyDirCal(self, up_axis):
+        """Build the canvas mapping from the two measured rotation axes.
+
+        dx = -(w·n): swinging right must give dx > 0, so n = -right_axis.
+        dy = -(w·u): swinging up must give dy > 0, so u = -up_axis,
+        orthogonalized against n (Gram-Schmidt).
+        """
+        n = -self._dirCalRightAxis
+        u_raw = -up_axis
+
+        if abs(float(np.dot(n, u_raw))) > 0.85:
+            self.__finishDirCal(False, '两次挥动方向过于接近，请重试（先向右、再向上）')
+            return
+
+        u = u_raw - np.dot(u_raw, n) * n
+        u = u / np.linalg.norm(u)
+
+        self._axisVert = n
+        self._axisHoriz = u
+        self._calibrated = True
+        self._wFilt = np.zeros(3, dtype=np.float64)
+
+        # Recenter cursor on the new mapping
+        self._posX = 0.0
+        self._posY = 0.0
+        self._cursorItem.setData([0.0], [0.0])
+
+        self.__finishDirCal(True, '已根据你的佩戴方向校准上下左右，光标已归中')
+
+    def __finishDirCal(self, success, message):
+        """End the calibration flow and restore normal drawing state."""
+        self._dirCalStage = None
+        self._dirCalSamples = []
+        self._dirCalRightAxis = None
+        self._dirCalStillCount = 0
+        self._dirCalEndCount = 0
+        self.dirCalBtn.setText('方向校准')
+        self.calibrateBtn.setEnabled(self._active)
+        self.statusLabel.setText('轨迹绘制中' if self._active else '轨迹绘制未开启')
+
+        # Restore pen for always-down mode after calibration
+        if success and self._active and self._mode == 'always':
+            self.__setPenDown(True)
+
+        if success:
+            InfoBar.success(
+                '方向校准完成', message,
+                parent=self.window(), duration=3000,
+                position=InfoBarPosition.TOP_RIGHT
+            )
+        else:
+            InfoBar.warning(
+                '方向校准失败', message,
+                parent=self.window(), duration=3000,
+                position=InfoBarPosition.TOP_RIGHT
+            )
+
     # ── Data processing ──────────────────────────────────────
 
     def __onBatchReceived(self, batch):
@@ -652,8 +883,13 @@ class DrawingInterface(ScrollArea):
             else:
                 self._stillCount = 0
 
-            # Remove bias, then EMA low-pass filter to smooth the stroke
+            # Remove bias, then feed the direction calibration if running
             w = w_raw - self._gyroBias
+            if self._dirCalStage is not None:
+                self.__processDirCalSample(w)
+                continue
+
+            # EMA low-pass filter to smooth the stroke
             self._wFilt = self.LPF_ALPHA * w + (1.0 - self.LPF_ALPHA) * self._wFilt
 
             # Project onto the calibrated axes:
