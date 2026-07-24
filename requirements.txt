@@ -1,0 +1,8 @@
+bleak
+hmmlearn
+numpy
+PyQt5
+pyqt5_frameless_window
+pyqt5_sip
+pyqtgraph
+PyQt-Fluent-Widgets
