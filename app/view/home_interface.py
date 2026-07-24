@@ -1,4 +1,6 @@
 # coding: utf-8
+from datetime import datetime
+
 from PyQt5.QtCore import Qt, QRectF, pyqtSignal
 from PyQt5.QtGui import QPixmap, QPainter, QColor, QBrush, QPainterPath, QLinearGradient
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame
@@ -20,19 +22,23 @@ class BannerWidget(QWidget):
         self.setFixedHeight(280)
 
         self.vBoxLayout = QVBoxLayout(self)
-        self.titleLabel = TitleLabel('Fingertip', self)
+        self.titleLabel = TitleLabel(f'{self.get_time_period()}好，我是Fingertip👋', self)
         self.subtitleLabel = BodyLabel('指尖控万物', self)
+        self.connectStatus = BodyLabel('当前尚未连接戒指，快去连接以开启智慧生活', self)
 
         self.vBoxLayout.setSpacing(0)
         self.vBoxLayout.setContentsMargins(36, 40, 36, 20)
         self.vBoxLayout.addWidget(self.titleLabel)
         self.vBoxLayout.addSpacing(8)
         self.vBoxLayout.addWidget(self.subtitleLabel)
-        self.vBoxLayout.addStretch(1)
+        self.vBoxLayout.addSpacing(8)
+        self.vBoxLayout.addWidget(self.connectStatus)
+
         self.vBoxLayout.setAlignment(Qt.AlignLeft | Qt.AlignTop)
 
         self.titleLabel.setObjectName('titleLabel')
         self.subtitleLabel.setObjectName('subtitleLabel')
+        self.connectStatus.setObjectName('connectStatus')
 
     def paintEvent(self, e):
         super().paintEvent(e)
@@ -59,6 +65,35 @@ class BannerWidget(QWidget):
             gradient.setColorAt(1, QColor(0, 0, 0, 0))
 
         painter.fillPath(path, QBrush(gradient))
+
+    def get_time_period(self):
+        """
+        获取当前时间并判断所属时段
+
+        返回:
+            str: 时段名称（早上/中午/下午/晚上/深夜）
+        """
+        now = datetime.now()
+        hour = now.hour
+
+        if 5 <= hour < 9:
+            return "早上"
+        elif 9 <= hour < 12:
+            return "上午"
+        elif 12 <= hour < 14:
+            return "中午"
+        elif 14 <= hour < 18:
+            return "下午"
+        elif 18 <= hour < 22:
+            return "晚上"
+        else:
+            return "深夜"
+
+    def onDeviceConnected(self, name: str, address: str):
+        self.connectStatus.setText(f'已连接: {name} ({address})')
+
+    def onDeviceDisconnected(self):
+        self.connectStatus.setText('当前尚未连接戒指，快去连接以开启智慧生活')
 
 
 class ModeCard(SimpleCardWidget):
@@ -107,7 +142,12 @@ class HomeInterface(ScrollArea):
         self.vBoxLayout = QVBoxLayout(self.view)
 
         self.__initWidget()
+        self.__connectSignals()
         self.__loadModeCards()
+
+    def __connectSignals(self):
+        signalBus.deviceConnected.connect(self.banner.onDeviceConnected)
+        signalBus.deviceDisconnected.connect(self.banner.onDeviceDisconnected)
 
     def __initWidget(self):
         self.view.setObjectName('view')

@@ -1,678 +1,410 @@
 #!/usr/bin/env python3
 """
-Ring Sound Gesture Trainer & Recognizer v2.1
-
-用法:
-  python gesture_trainer.py
-
-录入模式:
-  1. 输入动作名称
-  2. 按回车开始采集 (采集2秒数据)
-  3. 重复5次
-  4. 自动生成数据模型
-
-识别模式:
-  实时分析IMU数据，匹配已训练的动作
+戒指手势识别 v3.2 - 使用方向特征区分不同动作
 """
 
 import asyncio
 import json
 import time
-from pathlib import Path
-from typing import Dict, List, Tuple, Optional
 import numpy as np
 from collections import deque
+from pathlib import Path
+from typing import Optional, List, Dict
 
 import sdk.ring_sound as sdk
 
-# 存储文件
-DATA_FILE = Path("gesture_training.json")
-CONFIG_FILE = Path("ring_config.json")
+try:
+    from hmmlearn import hmm
+except ImportError:
+    print("请安装: pip install hmmlearn")
+    hmm = None
 
-# 采集参数
+# 配置
+MAC_ADDRESS = "E3:07:8F:FE:F9:02"
 SAMPLE_DURATION = 2.0
-SAMPLE_RATE = 25
-WINDOW_SIZE = 10
-MAX_RECONNECT_ATTEMPTS = 3
+TRAIN_EPOCHS = 8
+WINDOW_SIZE = 30
+N_STATES = 5
+MATCH_THRESHOLD = -300
 
 
 class GestureTrainer:
     def __init__(self):
-        self.trained_gestures: Dict[str, Dict] = {}
-        self.ring: Optional[sdk.RingSoundClient] = None
+        self.gestures: Dict[str, hmm.GaussianHMM] = {}
+        self.silence_model: Optional[hmm.GaussianHMM] = None
+        self.ring = None
         self.is_connected = False
-        self.mac_address: Optional[str] = None
-        self._load_config()
-        self._load_data()
-        self._is_gesture_mode = False
+        self.mac = MAC_ADDRESS
+        self._connect()
 
-    # ==================== 配置管理 ====================
+    # ==================== 核心：特征提取 (区分度更高) ====================
 
-    def _load_config(self):
-        if CONFIG_FILE.exists():
-            try:
-                with open(CONFIG_FILE, "r") as f:
-                    config = json.load(f)
-                    self.mac_address = config.get("mac_address")
-                    if self.mac_address:
-                        print(f"📋 读取到已保存设备: {self.mac_address}")
-            except Exception as e:
-                print(f"⚠️ 读取配置失败: {e}")
-                self.mac_address = None
-        else:
-            self.mac_address = None
+    def _extract_features(self, samples: List[Dict]) -> np.ndarray:
+        """
+        提取高区分度特征
+        关键：使用方向特征，而不是只有大小
+        """
+        if not samples:
+            return np.array([])
 
-    def _save_config(self):
-        with open(CONFIG_FILE, "w") as f:
-            json.dump({"mac_address": self.mac_address}, f, indent=2)
-        print(f"💾 已保存设备地址到 {CONFIG_FILE}")
+        # 原始数据
+        ax = np.array([s['accel_x'] for s in samples]) / 2048.0
+        ay = np.array([s['accel_y'] for s in samples]) / 2048.0
+        az = np.array([s['accel_z'] for s in samples]) / 2048.0
+        gx = np.array([s['gyro_x'] for s in samples]) / 2000.0
+        gy = np.array([s['gyro_y'] for s in samples]) / 2000.0
+        gz = np.array([s['gyro_z'] for s in samples]) / 2000.0
 
-    # ==================== 数据管理 ====================
+        # 合加速度
+        mag = np.sqrt(ax ** 2 + ay ** 2 + az ** 2)
 
-    def _load_data(self):
-        if DATA_FILE.exists():
-            try:
-                with open(DATA_FILE, "r") as f:
-                    self.trained_gestures = json.load(f)
-                if self.trained_gestures:
-                    print(f"✅ 加载了 {len(self.trained_gestures)} 个已训练动作")
-            except Exception as e:
-                print(f"⚠️ 加载数据失败: {e}")
-                self.trained_gestures = {}
-        else:
-            self.trained_gestures = {}
+        # 归一化方向向量 (关键：这保留了方向信息)
+        mag_safe = mag + 0.001
+        ax_norm = ax / mag_safe
+        ay_norm = ay / mag_safe
+        az_norm = az / mag_safe
 
-    def _save_data(self):
-        with open(DATA_FILE, "w") as f:
-            json.dump(self.trained_gestures, f, indent=2, ensure_ascii=False)
-        print(f"💾 已保存到 {DATA_FILE}")
+        # 方向变化率 (画圆时持续变化，直线时变化小)
+        dx = np.gradient(ax_norm)
+        dy = np.gradient(ay_norm)
+        dz = np.gradient(az_norm)
+        direction_change = np.sqrt(dx ** 2 + dy ** 2 + dz ** 2)
 
-    # ==================== 蓝牙扫描 ====================
+        # 角度变化 (进一步区分)
+        # 计算相邻帧之间的角度
+        angle_change = np.zeros(len(ax_norm))
+        for i in range(1, len(ax_norm)):
+            dot = ax_norm[i] * ax_norm[i - 1] + ay_norm[i] * ay_norm[i - 1] + az_norm[i] * az_norm[i - 1]
+            dot = np.clip(dot, -1, 1)
+            angle_change[i] = np.arccos(dot)
 
-    async def scan_and_select(self) -> bool:
-        print("\n🔍 正在扫描蓝牙设备...")
-        print("   请确保戒指已开机并处于广播状态\n")
+        # 特征矩阵: 7维
+        # [合加速度, 方向X, 方向Y, 方向变化率, 角度变化, 陀螺仪X, 陀螺仪Y]
+        features = np.column_stack([
+            mag,
+            ax_norm,
+            ay_norm,
+            direction_change,
+            angle_change,
+            gx,
+            gy
+        ])
+
+        # 去掉NaN
+        features = np.nan_to_num(features, nan=0.0)
+
+        return features
+
+    # ==================== 训练 ====================
+
+    def _train_hmm(self, name: str, samples_list: List[List[Dict]]) -> bool:
+        if hmm is None:
+            return False
+
+        all_features = []
+        lengths = []
+
+        for samples in samples_list:
+            features = self._extract_features(samples)
+            if len(features) > 10:
+                all_features.append(features)
+                lengths.append(len(features))
+
+        if len(all_features) < 3:
+            return False
+
+        X = np.vstack(all_features)
+        lengths = np.array(lengths)
 
         try:
-            devices = await sdk.scan_rings(timeout_s=8.0)
-        except Exception as e:
-            print(f"❌ 扫描失败: {e}")
-            return False
-
-        if not devices:
-            print("❌ 未找到任何蓝牙设备")
-            return False
-
-        ring_devices = []
-        for d in devices:
-            name = d.name or ""
-            if "ring" in name.lower() or "ringsound" in name.lower() or d.address.startswith("F1:C1"):
-                ring_devices.append(d)
-
-        if not ring_devices:
-            print("❌ 未找到戒指设备")
-            return False
-
-        print(f"\n📋 找到 {len(ring_devices)} 个戒指设备:")
-        for i, dev in enumerate(ring_devices, 1):
-            name = dev.name or "未知设备"
-            rssi = f"信号: {dev.rssi}dBm" if dev.rssi else ""
-            print(f"  {i}. {name} - {dev.address} {rssi}")
-
-        while True:
-            try:
-                choice = input(f"\n请选择设备 (1-{len(ring_devices)}): ").strip()
-                idx = int(choice) - 1
-                if 0 <= idx < len(ring_devices):
-                    selected = ring_devices[idx]
-                    self.mac_address = selected.address
-                    self._save_config()
-                    print(f"✅ 已选择: {selected.name or '未知设备'} - {self.mac_address}")
-                    return True
-                else:
-                    print(f"❌ 请输入 1-{len(ring_devices)}")
-            except ValueError:
-                print("❌ 请输入数字")
-
-    # ==================== 连接管理（含自动重连） ====================
-
-    async def connect(self, max_retries: int = 5) -> bool:
-        if self.is_connected and self.ring is not None:
-            # 验证连接是否真的有效
-            try:
-                # 尝试发送一个简单命令验证连接
-                await sdk.get_system_info(self.ring, timeout_s=3.0)
-                return True
-            except Exception:
-                print("⚠️ 连接已失效，重新连接...")
-                self.is_connected = False
-                self.ring = None
-
-        if not self.mac_address:
-            print("📋 未找到已保存的设备")
-            if not await self.scan_and_select():
-                return False
-
-        for attempt in range(max_retries):
-            if attempt > 0:
-                wait_time = min(2.0 * attempt, 8.0)
-                print(f"\n⏳ 等待 {wait_time:.0f}秒后重试 ({attempt+1}/{max_retries})...")
-                await asyncio.sleep(wait_time)
-
-            print(f"🔗 正在连接戒指 {self.mac_address} (尝试 {attempt+1}/{max_retries})...")
-            try:
-                self.ring = await sdk.connect_ring(
-                    address=self.mac_address,
-                    command_timeout_s=30.0,
-                    auto_time_sync=True
-                )
-                self.is_connected = True
-                self._is_gesture_mode = False
-                print("✅ 连接成功！")
-                return True
-            except Exception as e:
-                print(f"❌ 连接失败: {e}")
-                if self.ring is not None:
-                    try:
-                        await self.ring.disconnect()
-                    except:
-                        pass
-                    self.ring = None
-                self.is_connected = False
-
-        print(f"\n❌ 连续 {max_retries} 次重试失败")
-        return False
-
-    async def _ensure_connected(self) -> bool:
-        """确保连接有效，如果断开则自动重连"""
-        if self.is_connected and self.ring is not None:
+            model = hmm.GaussianHMM(
+                n_components=N_STATES,
+                covariance_type="diag",
+                n_iter=300,
+                tol=0.001,
+                init_params="stmc",
+                params="stmc"
+            )
+            model.fit(X, lengths)
+            self.gestures[name] = model
             return True
+        except Exception as e:
+            print(f"   ❌ 训练失败: {e}")
+            return False
 
-        print("\n⚠️ 连接已断开，尝试重新连接...")
-        return await self.connect(max_retries=3)
+    def _train_silence_model(self, samples_list: List[List[Dict]]) -> bool:
+        if hmm is None:
+            return False
 
-    async def disconnect(self):
-        if self.ring is not None:
+        all_features = []
+        lengths = []
+
+        for samples in samples_list:
+            features = self._extract_features(samples)
+            if len(features) > 10:
+                all_features.append(features)
+                lengths.append(len(features))
+
+        if len(all_features) < 3:
+            return False
+
+        X = np.vstack(all_features)
+        lengths = np.array(lengths)
+
+        try:
+            model = hmm.GaussianHMM(
+                n_components=2,
+                covariance_type="diag",
+                n_iter=100
+            )
+            model.fit(X, lengths)
+            self.silence_model = model
+            return True
+        except Exception as e:
+            print(f"   ❌ 静默模型训练失败: {e}")
+            return False
+
+    # ==================== 识别 ====================
+
+    def _recognize(self, samples: List[Dict]) -> Optional[str]:
+        if not self.gestures:
+            return None
+
+        features = self._extract_features(samples)
+        if len(features) < 10:
+            return None
+
+        best_name = None
+        best_score = -float('inf')
+
+        for name, model in self.gestures.items():
             try:
-                await self.ring.disconnect()
-            except Exception as e:
-                print(f"⚠️ 断开时出错: {e}")
+                score = model.score(features)
+                if score > best_score:
+                    best_score = score
+                    best_name = name
+            except Exception:
+                continue
+
+        if best_score < MATCH_THRESHOLD:
+            return None
+
+        # 与静默模型比较
+        if self.silence_model is not None:
+            try:
+                silence_score = self.silence_model.score(features)
+                if best_score - silence_score < 50:
+                    return None
+            except Exception:
+                pass
+
+        return best_name
+
+    # ==================== 蓝牙 ====================
+
+    async def _connect(self):
+        print(f"🔗 连接 {self.mac}...")
+        try:
+            self.ring = await sdk.connect_ring(
+                address=self.mac,
+                command_timeout_s=20.0,
+                auto_time_sync=True
+            )
+            self.is_connected = True
+            print("✅ 已连接")
+        except Exception as e:
+            print(f"❌ 连接失败: {e}")
             self.ring = None
             self.is_connected = False
-            self._is_gesture_mode = False
-            print("🔌 已断开连接")
-        else:
-            print("ℹ️  当前未连接")
 
-    # ==================== 带重试的IMU操作 ====================
+    async def _ensure_connected(self) -> bool:
+        if self.is_connected and self.ring:
+            return True
+        await self._connect()
+        return self.is_connected
 
-    async def _start_sensor_report_with_retry(self) -> bool:
-        """带重试的start_sensor_report"""
-        for attempt in range(3):
-            try:
-                if not await self._ensure_connected():
-                    return False
-                start_info = await sdk.start_sensor_report(self.ring, timeout_s=5.0)
-                print(f"   ✅ IMU已开启 (采样率: {start_info.sample_rate_hz}Hz)")
-                return True
-            except sdk.DeviceError as e:
-                if e.error_code == 2:  # 录音模式
-                    print("   ℹ️ 当前在录音模式，请手动单击戒指切换")
-                    return False
-                print(f"   ⚠️ 设备错误 (尝试 {attempt+1}/3): {e}")
-            except sdk.TransportError as e:
-                print(f"   ⚠️ 传输错误 (尝试 {attempt+1}/3): {e}")
-                self.is_connected = False
-                await asyncio.sleep(1)
-            except Exception as e:
-                print(f"   ⚠️ 错误 (尝试 {attempt+1}/3): {e}")
-                await asyncio.sleep(1)
-
-        return False
-
-    async def _stop_sensor_report_safe(self):
-        """安全停止IMU上报"""
+    async def _wait_for_data(self, timeout_s: float = 1.0):
+        if not self.is_connected or self.ring is None:
+            return None
         try:
-            if self.ring is not None and self.is_connected:
-                await sdk.stop_sensor_report(self.ring)
+            return await sdk.wait_sensor_data(self.ring, timeout_s=timeout_s)
         except Exception:
-            pass  # 忽略停止时的错误
-
-    async def _wait_sensor_data_safe(self, timeout_s: float = 1.0):
-        """安全等待IMU数据，断连时自动重连"""
-        for attempt in range(3):
-            try:
-                if not await self._ensure_connected():
-                    await asyncio.sleep(0.5)
-                    continue
-                return await sdk.wait_sensor_data(self.ring, timeout_s=timeout_s)
-            except sdk.TransportError:
-                print("   ⚠️ 传输断开，尝试重连...")
-                self.is_connected = False
-                await asyncio.sleep(0.5)
-                continue
-            except sdk.TimeoutError:
-                return None  # 超时不算错误
-            except Exception as e:
-                print(f"   ⚠️ 等待数据异常: {e}")
-                await asyncio.sleep(0.5)
-                continue
-        return None
-
-    # ==================== 手势模式检测 ====================
-
-    async def _ensure_gesture_mode(self) -> bool:
-        """确保戒指处于手势模式"""
-        if not await self._ensure_connected():
-            return False
-
-        if self._is_gesture_mode:
-            print("   ✅ 已处于手势模式")
-            return True
-
-        print("   🔍 检测当前模式...")
-
-        try:
-            start_info = await sdk.start_sensor_report(self.ring, timeout_s=5.0)
-            print(f"   ✅ 已处于手势模式 (采样率: {start_info.sample_rate_hz}Hz)")
-            await self._stop_sensor_report_safe()
-            self._is_gesture_mode = True
-            return True
-        except sdk.DeviceError as e:
-            if e.error_code == 2:
-                print("   ℹ️  当前处于录音模式")
-            else:
-                print(f"   ⚠️ 设备错误: {e}")
-                return False
-        except sdk.TransportError:
-            print("   ⚠️ 连接断开，重连后重试...")
-            self.is_connected = False
-            if await self._ensure_connected():
-                return await self._ensure_gesture_mode()
-            return False
-        except Exception as e:
-            print(f"   ⚠️ 检测失败: {e}")
-            return False
-
-        print("\n   👆 请手动单击戒指按钮切换到手势模式")
-        print("      然后按 Enter 继续...")
-        input()
-
-        try:
-            start_info = await sdk.start_sensor_report(self.ring, timeout_s=5.0)
-            print(f"   ✅ 已切换到手势模式")
-            await self._stop_sensor_report_safe()
-            self._is_gesture_mode = True
-            return True
-        except Exception as e:
-            print(f"   ❌ 切换失败: {e}")
-            return False
-
-    # ==================== 数据采集 ====================
+            return None
 
     async def _collect_samples(self, duration: float = SAMPLE_DURATION) -> List[Dict]:
-        """采集指定时长的IMU数据，断连自动恢复"""
         samples = []
-        start_time = time.time()
-
-        if not await self._start_sensor_report_with_retry():
-            return samples
+        start = time.time()
 
         try:
-            while time.time() - start_time < duration:
-                batch = await self._wait_sensor_data_safe(timeout_s=0.5)
-                if batch is None:
-                    continue
-                for sample in batch.samples:
-                    samples.append({
-                        'timestamp': sample.timestamp_ms,
-                        'accel_x': sample.accel_x,
-                        'accel_y': sample.accel_y,
-                        'accel_z': sample.accel_z,
-                        'gyro_x': sample.gyro_x,
-                        'gyro_y': sample.gyro_y,
-                        'gyro_z': sample.gyro_z,
-                    })
+            await sdk.start_sensor_report(self.ring)
+            while time.time() - start < duration:
+                batch = await self._wait_for_data()
+                if batch:
+                    for s in batch.samples:
+                        samples.append({
+                            'accel_x': s.accel_x, 'accel_y': s.accel_y, 'accel_z': s.accel_z,
+                            'gyro_x': s.gyro_x, 'gyro_y': s.gyro_y, 'gyro_z': s.gyro_z,
+                        })
+        except Exception as e:
+            print(f"⚠️ 采集异常: {e}")
         finally:
-            await self._stop_sensor_report_safe()
+            try:
+                await sdk.stop_sensor_report(self.ring)
+            except:
+                pass
 
         return samples
 
-    def _extract_features(self, samples: List[Dict]) -> Dict:
-        if not samples:
-            return {}
-
-        accel_x = np.array([s['accel_x'] for s in samples])
-        accel_y = np.array([s['accel_y'] for s in samples])
-        accel_z = np.array([s['accel_z'] for s in samples])
-        gyro_x = np.array([s['gyro_x'] for s in samples])
-        gyro_y = np.array([s['gyro_y'] for s in samples])
-        gyro_z = np.array([s['gyro_z'] for s in samples])
-
-        accel_mag = np.sqrt(accel_x**2 + accel_y**2 + accel_z**2)
-
-        return {
-            'accel_mean': float(np.mean(accel_mag)),
-            'accel_std': float(np.std(accel_mag)),
-            'accel_range': float(np.max(accel_mag) - np.min(accel_mag)),
-            'accel_x_mean': float(np.mean(accel_x)),
-            'accel_y_mean': float(np.mean(accel_y)),
-            'accel_z_mean': float(np.mean(accel_z)),
-            'gyro_mag_mean': float(np.mean(np.sqrt(gyro_x**2 + gyro_y**2 + gyro_z**2))),
-            'gyro_x_mean': float(np.mean(gyro_x)),
-            'gyro_y_mean': float(np.mean(gyro_y)),
-            'gyro_z_mean': float(np.mean(gyro_z)),
-            'peak_count': self._count_peaks(accel_mag),
-            'sample_count': len(samples)
-        }
-
-    def _count_peaks(self, data: np.ndarray, threshold: float = 500) -> int:
-        if len(data) < 3:
-            return 0
-        peaks = 0
-        mean_val = np.mean(data)
-        std_val = np.std(data)
-        if std_val < 10:
-            return 0
-        for i in range(1, len(data) - 1):
-            if data[i] > data[i-1] and data[i] > data[i+1]:
-                if data[i] > mean_val + threshold:
-                    peaks += 1
-        return peaks
-
-    def _similarity(self, f1: Dict, f2: Dict) -> float:
-        keys = ['accel_range', 'accel_std', 'gyro_mag_mean', 'peak_count']
-
-        total_diff = 0
-        for key in keys:
-            if key in f1 and key in f2:
-                v1 = f1[key]
-                v2 = f2[key]
-                if v1 == 0 and v2 == 0:
-                    diff = 0
-                elif v1 == 0:
-                    diff = abs(v2) / 100
-                elif v2 == 0:
-                    diff = abs(v1) / 100
-                else:
-                    diff = abs(v1 - v2) / (abs(v1) + abs(v2))
-                total_diff += diff
-
-        if 'accel_x_mean' in f1 and 'accel_x_mean' in f2:
-            ax_diff = abs(f1['accel_x_mean'] - f2['accel_x_mean']) / 2048
-            ay_diff = abs(f1['accel_y_mean'] - f2['accel_y_mean']) / 2048
-            az_diff = abs(f1['accel_z_mean'] - f2['accel_z_mean']) / 2048
-            total_diff += (ax_diff + ay_diff + az_diff) / 3
-
-        return total_diff
-
-    # ==================== 训练 ====================
+    # ==================== 训练流程 ====================
 
     async def train_action(self):
         if not await self._ensure_connected():
             return
 
-        print("\n🔔 准备训练...")
-        if not await self._ensure_gesture_mode():
-            print("❌ 无法进入手势模式")
-            return
-
-        name = input("\n📝 输入动作名称: ").strip()
+        name = input("\n📝 动作名称 (如: 画圆、挥手、前后): ").strip()
         if not name:
-            print("❌ 动作名称不能为空")
             return
 
-        if name in self.trained_gestures:
-            print(f"⚠️ 动作 '{name}' 已存在，将覆盖")
-            confirm = input("确认覆盖? (y/n): ").strip().lower()
-            if confirm != 'y':
-                return
+        print(f"\n🔔 采集 '{name}'，共 {TRAIN_EPOCHS} 次")
+        print("   每次做同样的动作，速度尽量一致")
+        input("按 Enter 开始...")
 
-        print(f"\n🔔 准备采集 '{name}'")
-        print(f"   每次采集 {SAMPLE_DURATION} 秒数据，共5次")
-        print("   每次按 Enter 开始采集")
-        print("   请保持手部静止，等待提示再开始动作")
-        input("\n按 Enter 开始...")
+        all_samples = []
 
-        all_features = []
+        for i in range(1, TRAIN_EPOCHS + 1):
+            input(f"\n⏳ 第 {i}/{TRAIN_EPOCHS} 次: 按 Enter 后开始做动作")
+
+            print("   ⏰ 3...2...1... 🎬 做动作！")
+            samples = await self._collect_samples()
+            print(f"   📊 {len(samples)} 个样本")
+
+            if len(samples) > 10:
+                all_samples.append(samples)
+            else:
+                print("   ❌ 数据太少，重试")
+                i -= 1
+
+        if len(all_samples) < 3:
+            print("❌ 样本不足")
+            return
+
+        if self._train_hmm(name, all_samples):
+            print(f"✅ '{name}' 训练完成")
+        else:
+            print("❌ 训练失败")
+
+    async def train_silence(self):
+        print("\n🔔 采集静默数据 (保持手部完全静止)")
+        input("按 Enter 开始...")
+
+        all_samples = []
 
         for i in range(1, 6):
-            input(f"\n⏳ 第 {i}/5 次: 按 Enter 开始采集...")
+            input(f"\n⏳ 第 {i}/5 次: 按 Enter")
+            print("   🧘 保持静止 2 秒")
+            samples = await self._collect_samples()
+            print(f"   📊 {len(samples)} 个样本")
+            if len(samples) > 10:
+                all_samples.append(samples)
 
-            print("   ⏰ 准备... 3")
-            await asyncio.sleep(0.5)
-            print("   ⏰ 2")
-            await asyncio.sleep(0.5)
-            print("   ⏰ 1")
-            await asyncio.sleep(0.5)
-            print("   🎬 开始做动作！")
+        if self._train_silence_model(all_samples):
+            print("✅ 静默模型训练完成")
 
-            # 确保连接有效
-            if not await self._ensure_connected():
-                print("   ❌ 连接断开，请重试")
-                i -= 1
-                continue
-
-            samples = await self._collect_samples(duration=SAMPLE_DURATION)
-            print(f"   📊 采集到 {len(samples)} 个样本")
-
-            if len(samples) < 10:
-                print("   ❌ 数据太少，请重试")
-                i -= 1
-                continue
-
-            features = self._extract_features(samples)
-            all_features.append(features)
-            print(f"   ✅ 第 {i} 次采集完成")
-
-        if len(all_features) < 5:
-            print("\n❌ 有效采集次数不足，训练失败")
-            return
-
-        avg_features = {}
-        key_list = ['accel_mean', 'accel_std', 'accel_range', 'accel_x_mean', 'accel_y_mean', 'accel_z_mean',
-                   'gyro_mag_mean', 'gyro_x_mean', 'gyro_y_mean', 'gyro_z_mean', 'peak_count']
-
-        for key in key_list:
-            values = [f.get(key, 0) for f in all_features]
-            avg_features[key] = sum(values) / len(values)
-
-        self.trained_gestures[name] = {
-            'template': avg_features,
-            'samples_count': len(all_features) * 50,
-            'features': all_features
-        }
-        self._save_data()
-
-        print(f"\n✅ 动作 '{name}' 训练完成！")
-        print(f"   📊 成功采集: {len(all_features)}/5 次")
-
-    # ==================== 识别 ====================
+    # ==================== 识别流程 ====================
 
     async def recognize(self):
         if not await self._ensure_connected():
             return
 
-        if not self.trained_gestures:
-            print("\n❌ 没有已训练的动作，请先训练")
+        if not self.gestures:
+            print("❌ 没有训练的动作")
             return
 
-        print("\n🔔 准备识别...")
-        if not await self._ensure_gesture_mode():
-            print("❌ 无法进入手势模式")
-            return
-
-        print("\n🔍 开始识别模式 (持续监听)")
-        print(f"  已训练动作: {', '.join(self.trained_gestures.keys())}")
-        print("  直接做动作即可，无需按键")
+        print("\n🔍 开始识别")
+        print(f"  已训练: {', '.join(self.gestures.keys())}")
+        print("  做动作即可识别")
         print("  按 Ctrl+C 退出\n")
 
-        window = deque(maxlen=25)
-
-        if not await self._start_sensor_report_with_retry():
-            print("   ❌ 无法开启IMU")
-            return
-
-        print("   ✅ IMU已开启\n")
+        window = deque(maxlen=WINDOW_SIZE)
+        cooldown = 0
 
         try:
+            await sdk.start_sensor_report(self.ring)
+            print("✅ IMU已开启")
+
             while True:
-                batch = await self._wait_sensor_data_safe(timeout_s=1.0)
+                batch = await self._wait_for_data()
                 if batch is None:
-                    # 检查连接是否还在
-                    if not await self._ensure_connected():
-                        print("   ⚠️ 连接断开，尝试恢复...")
-                        await asyncio.sleep(1)
-                        # 重新开启IMU
-                        if not await self._start_sensor_report_with_retry():
-                            print("   ❌ 无法恢复IMU")
-                            break
                     continue
 
-                for sample in batch.samples:
+                for s in batch.samples:
                     window.append({
-                        'accel_x': sample.accel_x,
-                        'accel_y': sample.accel_y,
-                        'accel_z': sample.accel_z,
-                        'gyro_x': sample.gyro_x,
-                        'gyro_y': sample.gyro_y,
-                        'gyro_z': sample.gyro_z,
+                        'accel_x': s.accel_x, 'accel_y': s.accel_y, 'accel_z': s.accel_z,
+                        'gyro_x': s.gyro_x, 'gyro_y': s.gyro_y, 'gyro_z': s.gyro_z,
                     })
 
-                    if len(window) == window.maxlen:
-                        accel_mags = [np.sqrt(s['accel_x']**2 + s['accel_y']**2 + s['accel_z']**2) for s in window]
-                        diff = max(accel_mags) - min(accel_mags)
+                    if cooldown > 0:
+                        cooldown -= 1
+                        continue
 
-                        if diff > 800:
-                            features = self._extract_features(list(window))
-                            match = self._match_action(features)
+                    if len(window) == WINDOW_SIZE:
+                        # 检测是否有动作
+                        mags = [np.sqrt(w['accel_x'] ** 2 + w['accel_y'] ** 2 + w['accel_z'] ** 2) for w in window]
+                        diff = max(mags) - min(mags)
+
+                        if diff > 600:
+                            match = self._recognize(list(window))
                             if match:
-                                print(f"🎯 识别到: {match}")
+                                print(f"🎯 {match}")
+                                cooldown = 15
                             window.clear()
 
         except KeyboardInterrupt:
-            print("\n\n👋 退出识别模式")
+            print("\n👋 退出")
         finally:
-            await self._stop_sensor_report_safe()
-            print("   IMU已关闭")
-
-    def _match_action(self, features: Dict) -> Optional[str]:
-        if not features:
-            return None
-
-        best_match = None
-        best_score = float('inf')
-        threshold = 2.0
-
-        for name, data in self.trained_gestures.items():
-            template = data.get('template', {})
-            if not template:
-                continue
-            score = self._similarity(features, template)
-            if score < best_score:
-                best_score = score
-                best_match = name
-
-        if best_score < threshold and best_match:
-            return best_match
-        return None
-
-    def list_actions(self):
-        if not self.trained_gestures:
-            print("\n📭 还没有训练任何动作")
-            return
-
-        print("\n📋 已训练的动作:")
-        for i, (name, data) in enumerate(self.trained_gestures.items(), 1):
-            sample_count = data.get('samples_count', 0)
-            print(f"  {i}. {name} (样本数: {sample_count})")
-
-    def delete_action(self):
-        if not self.trained_gestures:
-            print("\n📭 没有动作可删除")
-            return
-
-        self.list_actions()
-        name = input("\n📝 输入要删除的动作名称: ").strip()
-        if name in self.trained_gestures:
-            del self.trained_gestures[name]
-            self._save_data()
-            print(f"✅ 已删除 '{name}'")
-        else:
-            print(f"❌ 未找到 '{name}'")
-
-    def show_status(self):
-        print("\n📊 当前状态:")
-        print(f"  设备状态: {'✅ 已连接' if self.is_connected else '❌ 未连接'}")
-        if self.mac_address:
-            print(f"  设备地址: {self.mac_address}")
-        print(f"  已训练动作: {len(self.trained_gestures)} 个")
-        if self.trained_gestures:
-            names = ", ".join(self.trained_gestures.keys())
-            print(f"  动作列表: {names}")
+            try:
+                await sdk.stop_sensor_report(self.ring)
+            except:
+                pass
 
 
-# ==================== 主菜单 ====================
+# ==================== 主程序 ====================
 
 async def main():
     trainer = GestureTrainer()
 
-    if trainer.mac_address:
-        print("\n🔄 尝试自动连接...")
-        await trainer.connect(max_retries=5)
-
     print("""
 ╔══════════════════════════════════════╗
-║   🪄 戒指手势训练器 v2.1            ║
-║   基于IMU原始数据的动作训练与识别    ║
+║   🪄 手势识别 v3.2                  ║
+║   使用方向特征区分不同动作           ║
 ╚══════════════════════════════════════╝
     """)
 
     while True:
-        print("\n" + "─" * 50)
-        trainer.show_status()
-        print("\n📋 主菜单")
-        print("  1. 🔗 连接/切换设备")
-        print("  2. 🎯 训练新动作")
-        print("  3. 🔍 识别动作 (持续监听)")
-        print("  4. 📋 查看已训练动作")
-        print("  5. 🗑️  删除动作")
-        print("  6. 🔌 断开设备")
-        print("  7. 🚪 退出")
-        print("─" * 50)
+        print("\n" + "─" * 40)
+        print("1. 训练动作")
+        print("2. 训练静默基线 (减少误识别)")
+        print("3. 识别模式")
+        print("4. 清空所有训练")
+        print("5. 退出")
 
-        choice = input("请选择 (1-7): ").strip()
+        choice = input("\n选择: ").strip()
 
         if choice == "1":
-            if trainer.is_connected:
-                await trainer.disconnect()
-            await trainer.scan_and_select()
-            await trainer.connect()
-        elif choice == "2":
             await trainer.train_action()
+        elif choice == "2":
+            await trainer.train_silence()
         elif choice == "3":
             await trainer.recognize()
         elif choice == "4":
-            trainer.list_actions()
+            trainer.gestures = {}
+            print("✅ 已清空")
         elif choice == "5":
-            trainer.delete_action()
-        elif choice == "6":
-            await trainer.disconnect()
-        elif choice == "7":
-            await trainer.disconnect()
-            print("\n👋 再见！")
             break
-        else:
-            print("❌ 无效选项，请重新选择")
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n\n👋 已退出")
-    except Exception as e:
-        print(f"\n❌ 程序异常: {e}")
-        import traceback
-        traceback.print_exc()
-        input("按 Enter 退出...")
+        print("\n👋 再见")

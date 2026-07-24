@@ -3,6 +3,7 @@ import os
 import sys
 
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QSurfaceFormat
 from PyQt5.QtWidgets import QApplication
 
 from app.view.main_window import MainWindow
@@ -19,6 +20,13 @@ else:
     os.environ["QT_SCALE_FACTOR"] = str(cfg.get(cfg.dpiScale))
 
 QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+
+# enable alpha channel for OpenGL compositing, otherwise embedding
+# GLViewWidget breaks the mica effect (transparent areas turn black)
+fmt = QSurfaceFormat.defaultFormat()
+fmt.setAlphaBufferSize(8)
+QSurfaceFormat.setDefaultFormat(fmt)
+QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
 
 # create application
 app = QApplication(sys.argv)

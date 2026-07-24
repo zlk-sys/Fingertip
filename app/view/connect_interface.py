@@ -13,8 +13,8 @@ from qfluentwidgets import (ScrollArea, ExpandLayout, FluentIcon, setFont,
                             InfoBar, InfoBarPosition, isDarkTheme,
                             IndeterminateProgressBar,
                             SubtitleLabel, IconWidget,
-                            SimpleCardWidget, HeaderCardWidget, GroupHeaderCardWidget,
-                            HyperlinkLabel, SearchLineEdit)
+                            SimpleCardWidget, GroupHeaderCardWidget,
+                            HyperlinkLabel, SearchLineEdit, PipsPager)
 from qfluentwidgets import FluentIcon as FIF
 
 from ..common.style_sheet import StyleSheet
@@ -225,57 +225,12 @@ class DeviceCard(SimpleCardWidget):
             lambda: self.connectClicked.emit(self.address, self.name))
 
 
-class DeviceInfoCard(HeaderCardWidget):
-    """Card showing connected device info."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setTitle('设备信息')
-        self.setBorderRadius(8)
-
-        self.firmwareLabel = BodyLabel('固件版本: --', self)
-        self.batteryLabel = BodyLabel('电量: --', self)
-        self.modelLabel = BodyLabel('型号: --', self)
-        self.snLabel = BodyLabel('序列号: --', self)
-        self.storageLabel = BodyLabel('存储: --', self)
-        self.chargingLabel = BodyLabel('充电状态: --', self)
-
-        self.vBoxLayout = QVBoxLayout()
-        self.vBoxLayout.setSpacing(8)
-        self.vBoxLayout.setContentsMargins(0, 0, 0, 0)
-        self.vBoxLayout.addWidget(self.firmwareLabel)
-        self.vBoxLayout.addWidget(self.batteryLabel)
-        self.vBoxLayout.addWidget(self.modelLabel)
-        self.vBoxLayout.addWidget(self.snLabel)
-        self.vBoxLayout.addWidget(self.storageLabel)
-        self.vBoxLayout.addWidget(self.chargingLabel)
-
-        self.viewLayout.addLayout(self.vBoxLayout)
-
-    def updateInfo(self, info):
-        self.firmwareLabel.setText(f'固件版本: {info.firmware_version}')
-        self.batteryLabel.setText(f'电量: {info.battery_percent}%')
-        self.modelLabel.setText(f'型号: {info.model}')
-        self.snLabel.setText(f'序列号: {info.sn}')
-        total_kb = info.audio_storage_total // 1024
-        avail_kb = info.audio_storage_available // 1024
-        self.storageLabel.setText(f'存储: {avail_kb}KB / {total_kb}KB')
-        self.chargingLabel.setText(
-            f'充电状态: {"充电中" if info.battery_charging else "未充电"}')
-
-    def reset(self):
-        self.firmwareLabel.setText('固件版本: --')
-        self.batteryLabel.setText('电量: --')
-        self.modelLabel.setText('型号: --')
-        self.snLabel.setText('序列号: --')
-        self.storageLabel.setText('存储: --')
-        self.chargingLabel.setText('充电状态: --')
-
-
 # ── Main Interface ──────────────────────────────────────────────
 
 class ConnectInterface(ScrollArea):
     """Connect ring interface."""
+
+    PAGE_SIZE = 10
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
@@ -332,13 +287,17 @@ class ConnectInterface(ScrollArea):
         self.emptyLabel.setAlignment(Qt.AlignCenter)
         self.deviceListView.addWidget(self.emptyLabel)
 
-        # Device info card
-        self.deviceInfoCard = DeviceInfoCard(self.view)
+        # Pagination
+        self.pipsPager = PipsPager(self.view)
+        self.pipsPager.setVisibleNumber(5)
+        self.pipsPager.setVisible(False)
 
         # State
         self._client = None
         self._threads = []
         self._allDevices = []
+        self._displayDevices = []
+        self._currentPage = 0
         self._scanThread = None
         self._deviceName = None
         self._deviceAddress = None
@@ -375,12 +334,13 @@ class ConnectInterface(ScrollArea):
         self.vBoxLayout.addWidget(self.macFilterEdit)
         self.vBoxLayout.addWidget(self.deviceCountLabel)
         self.vBoxLayout.addLayout(self.deviceListView)
-        self.vBoxLayout.addWidget(self.deviceInfoCard, 0, Qt.AlignTop)
+        self.vBoxLayout.addWidget(self.pipsPager, 0, Qt.AlignHCenter)
 
         # signals
         self.scanBtn.clicked.connect(self.__onScan)
         self.disconnectBtn.clicked.connect(self.__onDisconnect)
         self.macFilterEdit.textChanged.connect(self.__onFilterChanged)
+        self.pipsPager.currentIndexChanged.connect(self.__onPageChanged)
         signalBus.refreshSystemInfoRequested.connect(self.__onRefreshSystemInfo)
 
         # cleanup
@@ -401,6 +361,9 @@ class ConnectInterface(ScrollArea):
         self.progressBar.start()
         self.__clearDeviceList()
         self._allDevices = []
+        self._displayDevices = []
+        self._currentPage = 0
+        self.pipsPager.setVisible(False)
         self.macFilterEdit.setVisible(False)
         self.emptyLabel.setText('正在扫描...')
         self.emptyLabel.setVisible(True)
@@ -448,33 +411,64 @@ class ConnectInterface(ScrollArea):
         self.scanBtn.setText('扫描戒指')
 
     def __renderDeviceList(self, devices):
-        """Render device cards from a device list."""
-        self.__clearDeviceList()
-        self.emptyLabel.setVisible(False)
-
+        """Sort devices, update pager and render the current page."""
         if not devices:
+            self.__clearDeviceList()
             self.emptyLabel.setText('没有匹配的设备')
             self.emptyLabel.setVisible(True)
             self.deviceListView.addWidget(self.emptyLabel)
-            self.deviceCountLabel.setText(f'共搜索到 {len(self._allDevices)} 个设备，当前显示 0 个')
+            self.deviceCountLabel.setText(
+                f'共搜索到 {len(self._allDevices)} 个设备，当前显示 0 个')
             self.deviceCountLabel.setVisible(True)
+            self._displayDevices = []
+            self.pipsPager.setVisible(False)
             return
 
-        # Sort: devices with 'ring' in name first
+        self.emptyLabel.setVisible(False)
+
+        # Sort: devices with 'ring' in name first, then by name
         def is_ring_device(dev):
             name = dev.name or ''
             return 'ring' in name.lower()
 
-        sorted_devices = sorted(devices, key=lambda d: (not is_ring_device(d), d.name or ''))
+        self._displayDevices = sorted(
+            devices, key=lambda d: (not is_ring_device(d), d.name or ''))
+
+        total = len(self._displayDevices)
+        page_count = (total + self.PAGE_SIZE - 1) // self.PAGE_SIZE
 
         self.deviceCountLabel.setText(
-            f'共搜索到 {len(self._allDevices)} 个设备，当前显示 {len(sorted_devices)} 个')
+            f'共搜索到 {len(self._allDevices)} 个设备，当前第 {self._currentPage + 1} 页，共 {page_count} 页')
         self.deviceCountLabel.setVisible(True)
 
-        for dev in sorted_devices:
+        # Update pager (keep current page if still valid)
+        self.pipsPager.blockSignals(True)
+        self.pipsPager.setPageNumber(page_count)
+        if self._currentPage >= page_count:
+            self._currentPage = 0
+        self.pipsPager.setCurrentIndex(self._currentPage)
+        self.pipsPager.blockSignals(False)
+        self.pipsPager.setVisible(page_count > 1)
+
+        self.__renderCurrentPage()
+
+    def __renderCurrentPage(self):
+        """Render the device cards for the current page."""
+        self.__clearDeviceList()
+        start = self._currentPage * self.PAGE_SIZE
+        end = start + self.PAGE_SIZE
+        for dev in self._displayDevices[start:end]:
             card = DeviceCard(dev.name, dev.address, dev.rssi, self.view)
             card.connectClicked.connect(self.__onConnectDevice)
             self.deviceListView.addWidget(card)
+
+    def __onPageChanged(self, index):
+        self._currentPage = index
+        total = len(self._displayDevices)
+        page_count = (total + self.PAGE_SIZE - 1) // self.PAGE_SIZE
+        self.deviceCountLabel.setText(
+            f'共搜索到 {len(self._allDevices)} 个设备，当前第 {index + 1} 页，共 {page_count} 页')
+        self.__renderCurrentPage()
 
     def __onFilterChanged(self, text):
         """Filter devices by MAC address (fuzzy match)."""
@@ -575,7 +569,6 @@ class ConnectInterface(ScrollArea):
         self._deviceAddress = None
         self.statusLabel.setText('未连接')
         self.disconnectBtn.setEnabled(False)
-        self.deviceInfoCard.reset()
 
         # Clear shared client
         global shared_client
@@ -610,7 +603,6 @@ class ConnectInterface(ScrollArea):
         self.__fetchSystemInfo(timeout_s=60)
 
     def __onSystemInfo(self, info):
-        self.deviceInfoCard.updateInfo(info)
         signalBus.systemInfoReceived.emit(info)
 
     def __onSystemInfoError(self, error_msg):

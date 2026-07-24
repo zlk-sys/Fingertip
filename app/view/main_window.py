@@ -1,11 +1,14 @@
 # coding: utf-8
-from PyQt5.QtCore import QUrl, QSize, QTimer
-from PyQt5.QtGui import QIcon, QDesktopServices, QColor
-from PyQt5.QtWidgets import QApplication
+import os
+
+from PyQt5.QtCore import Qt, QUrl, QSize, QTimer, QThread, pyqtSignal
+from PyQt5.QtGui import QIcon, QDesktopServices, QColor, QFont
+from PyQt5.QtWidgets import QApplication, QWidget, QHBoxLayout, QLabel
 
 from qfluentwidgets import (NavigationItemPosition, MessageBox, FluentWindow,
                             SplashScreen, SystemThemeListener, isDarkTheme,
-                            NavigationAvatarWidget, setTheme, Theme, toggleTheme)
+                            NavigationAvatarWidget, setTheme, Theme, toggleTheme,
+                            PillPushButton)
 from qfluentwidgets import FluentIcon as FIF
 
 from .home_interface import HomeInterface
@@ -19,6 +22,112 @@ from .basic_interface import BasicInterface
 from .setting_interface import SettingInterface
 from ..common.config import cfg
 from ..common.signal_bus import signalBus
+
+
+# Mode values
+MODE_RECORDING = '录音模式'
+MODE_GESTURE = '手势模式'
+MODE_UNKNOWN = '未知模式'
+
+
+class ModeProbeThread(QThread):
+    """Periodically probe device mode via start_sensor_report."""
+    modeDetected = pyqtSignal(str)  # MODE_RECORDING, MODE_GESTURE, MODE_UNKNOWN
+    error = pyqtSignal(str)
+
+    INTERVAL_MS = 8000
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._running = False
+        self._client = None
+        self._loop_thread = None
+
+    def set_client(self, client, loop_thread):
+        self._client = client
+        self._loop_thread = loop_thread
+
+    def stop(self):
+        self._running = False
+
+    def run(self):
+        if self._client is None or self._loop_thread is None:
+            return
+        self._running = True
+        from ..sdk.ring_sound import start_sensor_report, stop_sensor_report
+        from ..sdk.ring_sound import DeviceError
+
+        while self._running:
+            try:
+                start_info = self._loop_thread.run_coro(
+                    start_sensor_report(self._client, timeout_s=5.0),
+                    timeout=6.0,
+                )
+                # If successful -> gesture mode, stop report immediately
+                self.modeDetected.emit(MODE_GESTURE)
+                try:
+                    self._loop_thread.run_coro(
+                        stop_sensor_report(self._client, timeout_s=5.0),
+                        timeout=6.0,
+                    )
+                except Exception:
+                    pass
+            except DeviceError as de:
+                if de.error_code == 2:
+                    self.modeDetected.emit(MODE_RECORDING)
+                else:
+                    self.modeDetected.emit(MODE_UNKNOWN)
+            except Exception:
+                self.modeDetected.emit(MODE_UNKNOWN)
+
+            # Wait interval
+            for _ in range(self.INTERVAL_MS // 100):
+                if not self._running:
+                    break
+                self.msleep(100)
+
+
+class ModeIndicator(QWidget):
+    """Compact mode indicator widget for the title bar."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName('modeIndicator')
+
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(8, 2, 8, 2)
+        self._layout.setSpacing(6)
+
+        self._dot = QLabel('●', self)
+        self._dot.setFont(QFont('Microsoft YaHei', 10))
+
+        self._label = QLabel(MODE_UNKNOWN, self)
+        self._label.setFont(QFont('Microsoft YaHei', 10))
+
+        self._layout.addWidget(self._dot)
+        self._layout.addWidget(self._label)
+
+        self.setVisible(False)
+        self._applyStyle(MODE_UNKNOWN)
+
+    def setMode(self, mode: str):
+        self.setVisible(True)
+        self._label.setText(mode)
+        self._applyStyle(mode)
+
+    def clear(self):
+        self.setVisible(False)
+
+    def _applyStyle(self, mode: str):
+        if mode == MODE_GESTURE:
+            color = '#4dcb66' if isDarkTheme() else '#00a854'
+        elif mode == MODE_RECORDING:
+            color = '#ff7043' if isDarkTheme() else '#e64a19'
+        else:
+            color = '#8a8a8a' if isDarkTheme() else '#5c5c5c'
+
+        self._dot.setStyleSheet(f'color: {color};')
+        self._label.setStyleSheet(f'color: {color};')
 
 
 class MainWindow(FluentWindow):
@@ -44,6 +153,12 @@ class MainWindow(FluentWindow):
         # enable acrylic effect on navigation
         self.navigationInterface.setAcrylicEnabled(True)
 
+        # Mode indicator in title bar
+        self.modeIndicator = ModeIndicator(self.titleBar)
+        self.modeProbeThread = ModeProbeThread(self)
+        self.modeProbeThread.modeDetected.connect(self.modeIndicator.setMode)
+        self._insertModeIndicator()
+
         self.connectSignalToSlot()
 
         # add items to navigation interface
@@ -53,12 +168,23 @@ class MainWindow(FluentWindow):
         # start theme listener
         self.themeListener.start()
 
+    def _insertModeIndicator(self):
+        """Insert mode indicator widget into title bar, right after the title."""
+        tb = self.titleBar
+        # hBoxLayout: [icon][title][spacer][buttonLayout]
+        # Insert after title (index 2 = before spacer)
+        tb.hBoxLayout.insertWidget(2, self.modeIndicator)
+
     def connectSignalToSlot(self):
         signalBus.micaEnableChanged.connect(self.setMicaEffectEnabled)
         signalBus.switchToMeeting.connect(
             lambda: self.switchTo(self.meetingInterface))
         signalBus.switchToMultimedia.connect(
             lambda: self.switchTo(self.multimediaInterface))
+
+        # Device connect/disconnect for mode probe
+        signalBus.deviceConnected.connect(self._onDeviceConnected)
+        signalBus.deviceDisconnected.connect(self._onDeviceDisconnected)
 
     def initNavigation(self):
         # add navigation items
@@ -85,6 +211,16 @@ class MainWindow(FluentWindow):
         self.resize(960, 780)
         self.setMinimumWidth(760)
         self.setWindowTitle('Fingertip')
+
+        # set application logo
+        logoPath = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', 'logo.png')
+        self.setWindowIcon(QIcon(logoPath))
+
+        # make the top-level window translucent-capable, otherwise OpenGL
+        # compositing (triggered by GLViewWidget) discards the alpha channel
+        # and the transparent mica areas are rendered black
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.updateFrameless()
 
         self.setMicaEffectEnabled(cfg.get(cfg.micaEnabled))
 
@@ -115,3 +251,16 @@ class MainWindow(FluentWindow):
         # retry mica effect
         if self.isMicaEffectEnabled():
             QTimer.singleShot(100, lambda: self.windowEffect.setMicaEffect(self.winId(), isDarkTheme()))
+
+    def _onDeviceConnected(self, name, address):
+        from . import connect_interface
+        client = connect_interface.shared_client
+        loop_thread = connect_interface.async_loop_thread
+        if client and loop_thread:
+            self.modeProbeThread.set_client(client, loop_thread)
+            self.modeProbeThread.start()
+
+    def _onDeviceDisconnected(self):
+        self.modeProbeThread.stop()
+        self.modeProbeThread.wait(3000)
+        self.modeIndicator.clear()
