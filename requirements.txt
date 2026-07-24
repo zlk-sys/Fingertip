@@ -1,8 +1,28 @@
-bleak
-hmmlearn
-numpy
+# Fingertip - Python dependencies
+# Install: pip install -r requirements.txt
+#
+# System-level dependency (Linux, for keyboard simulation):
+#   sudo apt install xdotool
+#
+# Python >= 3.9 required
+
+# --- Core GUI ---
 PyQt5
-pyqt5_frameless_window
 pyqt5_sip
-pyqtgraph
+pyqt5_frameless_window
 PyQt-Fluent-Widgets
+
+# --- Data & Visualization ---
+numpy
+pyqtgraph
+PyOpenGL
+hmmlearn
+
+# --- BLE Communication ---
+bleak
+
+# --- Cross-platform keyboard simulation (meeting/multimedia mode) ---
+pynput
+
+# --- System theme detection (dark mode auto-switch) ---
+darkdetect
