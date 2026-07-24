@@ -31,6 +31,8 @@ __all__ = [
     "next_track",
     "previous_track",
     "press_key",
+    "send_text",
+    "press_enter",
     "is_available",
     "get_backend",
     "KeyNotSupportedError",
@@ -53,10 +55,12 @@ _IS_MAC = sys.platform == "darwin"
 
 _INPUT_KEYBOARD = 1
 _KEYEVENTF_KEYUP = 0x0002
+_KEYEVENTF_UNICODE = 0x0004
 
 # Virtual-Key Codes (Windows)
 _VK_LEFT = 0x25
 _VK_RIGHT = 0x27
+_VK_RETURN = 0x0D
 _VK_MEDIA_PLAY_PAUSE = 0xB3
 _VK_MEDIA_NEXT_TRACK = 0xB0
 _VK_MEDIA_PREV_TRACK = 0xB1
@@ -133,6 +137,38 @@ def _press_windows_vk(vk_code: int) -> None:
     _windows_send_input(2, events, ctypes.sizeof(_INPUT))
 
 
+def _press_windows_unicode(char: str) -> None:
+    """Inject a single Unicode character via Win32 SendInput."""
+    if _windows_send_input is None:
+        raise KeyNotSupportedError(
+            "Windows SendInput unavailable"
+            + (f": {_windows_import_error}" if _windows_import_error else "")
+        )
+
+    import ctypes
+
+    code = ord(char)
+    events = (_INPUT * 2)()
+
+    # Key down (Unicode)
+    events[0].type = _INPUT_KEYBOARD
+    events[0].union.ki.wVk = 0
+    events[0].union.ki.wScan = code
+    events[0].union.ki.dwFlags = _KEYEVENTF_UNICODE
+    events[0].union.ki.time = 0
+    events[0].union.ki.dwExtraInfo = 0
+
+    # Key up (Unicode)
+    events[1].type = _INPUT_KEYBOARD
+    events[1].union.ki.wVk = 0
+    events[1].union.ki.wScan = code
+    events[1].union.ki.dwFlags = _KEYEVENTF_UNICODE | _KEYEVENTF_KEYUP
+    events[1].union.ki.time = 0
+    events[1].union.ki.dwExtraInfo = 0
+
+    _windows_send_input(2, events, ctypes.sizeof(_INPUT))
+
+
 # ---------------------------------------------------------------------------
 # Linux / macOS backend: xdotool subprocess
 # ---------------------------------------------------------------------------
@@ -169,6 +205,26 @@ def _press_xdotool(key_name: str) -> None:
         if result.returncode != 0:
             raise KeyNotSupportedError(
                 f"xdotool failed (rc={result.returncode}): "
+                f"{result.stderr.decode(errors='replace').strip() or '<no stderr>'}"
+            )
+    except subprocess.TimeoutExpired as e:
+        raise KeyNotSupportedError(f"xdotool timeout: {e}") from e
+
+
+def _type_xdotool(text: str) -> None:
+    """Type a string of text via xdotool subprocess."""
+    if not _XDOTOOL_PATH:
+        raise KeyNotSupportedError("xdotool not found. Install it first.")
+    try:
+        result = subprocess.run(
+            [_XDOTOOL_PATH, "type", "--clearmodifiers", "--", text],
+            check=False,
+            timeout=3,
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            raise KeyNotSupportedError(
+                f"xdotool type failed (rc={result.returncode}): "
                 f"{result.stderr.decode(errors='replace').strip() or '<no stderr>'}"
             )
     except subprocess.TimeoutExpired as e:
@@ -263,3 +319,26 @@ def previous_track() -> None:
         _press_windows_vk(_VK_MEDIA_PREV_TRACK)
     else:
         _press_xdotool(_XDOTOOL_KEYS["prev_track"])
+
+
+def send_text(text: str) -> None:
+    """Type a string of text into the focused window.
+
+    On Windows this injects each character as a Unicode key event, so CJK
+    text (e.g. "继续") works regardless of the active keyboard layout.
+    """
+    if not text:
+        return
+    if _IS_WINDOWS:
+        for char in text:
+            _press_windows_unicode(char)
+    else:
+        _type_xdotool(text)
+
+
+def press_enter() -> None:
+    """Send an Enter / Return key press."""
+    if _IS_WINDOWS:
+        _press_windows_vk(_VK_RETURN)
+    else:
+        _press_xdotool("Return")

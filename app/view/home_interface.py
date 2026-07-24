@@ -224,7 +224,6 @@ class HomeInterface(ScrollArea):
         gridLayout.setContentsMargins(36, 0, 36, 0)
 
         cards = [
-            ('设备', '查看设备信息与存储状态', signalBus.switchToDevice),
             ('演讲模式', '戒指按键控制 PPT 翻页', signalBus.switchToMeeting),
             ('媒体模式', '手势控制视频播放与暂停', signalBus.switchToMultimedia),
             ('指尖实验室', '实时采集传感器数据', signalBus.switchToSensor),

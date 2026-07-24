@@ -158,7 +158,7 @@ class LevelInterface(ScrollArea):
         # Status card
         self.statusCard = SimpleCardWidget(self.view)
         self.statusCard.setBorderRadius(12)
-        self.statusCard.setFixedHeight(96)
+        self.statusCard.setFixedHeight(80)
 
         self.statusIcon = IconWidget(FIF.ROTATE, self.statusCard)
         self.statusIcon.setFixedSize(40, 40)

@@ -1,0 +1,16 @@
+CodingInterface, #view {
+    background-color: transparent;
+}
+
+QScrollArea {
+    background-color: transparent;
+    border: none;
+}
+
+#codingStatusLabel[active="true"] {
+    color: #00b42a;
+}
+
+#codingStatusLabel[active="false"] {
+    color: #9c9c9c;
+}

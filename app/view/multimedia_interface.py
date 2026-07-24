@@ -77,7 +77,7 @@ class MultimediaInterface(ScrollArea):
         # Status card
         self.statusCard = SimpleCardWidget(self.view)
         self.statusCard.setBorderRadius(12)
-        self.statusCard.setFixedHeight(100)
+        self.statusCard.setFixedHeight(80)
 
         # self.statusIcon = IconWidget(FIF.VIDEO, self.statusCard)
         # self.statusIcon.setFixedSize(40, 40)
@@ -99,7 +99,7 @@ class MultimediaInterface(ScrollArea):
         self.gestureCard.setBorderRadius(12)
         self.gestureCard.setFixedHeight(72)
 
-        self.doubleTapLabel = BodyLabel('双击戒指本体上一首', self.gestureCard)
+        self.doubleTapLabel = BodyLabel('双击桌面触发上一首', self.gestureCard)
         self.doubleTapSwitch = SwitchButton(self.gestureCard)
         self.doubleTapSwitch.setChecked(True)
 
@@ -125,8 +125,8 @@ class MultimediaInterface(ScrollArea):
         )
         self.prevCard = InstructionCard(
             FIF.CARE_LEFT_SOLID,
-            '双击戒指本体',
-            '上一首（双击戒指本体）—— 已开启',
+            '双击桌面',
+            '上一首（双击桌面）—— 已开启',
             self.view
         )
 

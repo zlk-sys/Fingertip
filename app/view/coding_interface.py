@@ -1,11 +1,12 @@
 # coding: utf-8
-"""Meeting (PPT) mode interface.
+"""Coding mode interface.
 
-In meeting mode, the ring button controls slide navigation:
-  - Single-click  -> next slide (Right arrow)
-  - Double-click  -> previous slide (Left arrow)
+In coding mode, the ring button controls a programming assistant:
+  - Single-click  -> send "继续" + Enter (continue the conversation)
+  - Double-click  -> launch the pre-configured assistant (claude/qoder)
 """
-from typing import Optional
+import subprocess
+import sys
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor
@@ -14,12 +15,13 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
 from qfluentwidgets import (ScrollArea, FluentIcon, TitleLabel, BodyLabel,
                             StrongBodyLabel, CaptionLabel, SubtitleLabel,
                             SimpleCardWidget, TogglePushButton, IconWidget,
-                            InfoBar, InfoBarPosition)
+                            ComboBox, InfoBar, InfoBarPosition)
 from qfluentwidgets import FluentIcon as FIF
 
 from ..common.style_sheet import StyleSheet
 from ..common.signal_bus import signalBus
-from ..common.keyboard_simulator import next_slide, previous_slide
+from ..common.keyboard_simulator import send_text, press_enter
+from ..common.config import cfg
 from ..sdk.ring_sound import SensorCommand
 
 
@@ -59,8 +61,8 @@ class InstructionCard(SimpleCardWidget):
         self.hBoxLayout.addStretch(1)
 
 
-class MeetingInterface(ScrollArea):
-    """Meeting / PPT mode interface."""
+class CodingInterface(ScrollArea):
+    """Coding mode interface."""
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
@@ -73,41 +75,57 @@ class MeetingInterface(ScrollArea):
         self._handlers_registered = False
 
         # Title
-        self.titleLabel = TitleLabel('演讲模式', self.view)
-        self.subtitleLabel = BodyLabel('使用戒指按钮控制 PPT 翻页', self.view)
+        self.titleLabel = TitleLabel('Coding 模式', self.view)
+        self.subtitleLabel = BodyLabel('使用戒指按钮控制编程助手', self.view)
 
         # Status card
         self.statusCard = SimpleCardWidget(self.view)
         self.statusCard.setBorderRadius(12)
         self.statusCard.setFixedHeight(80)
 
-        # self.statusIcon = IconWidget(FIF.MUTE, self.statusCard)
-        # self.statusIcon.setFixedSize(40, 40)
-        self.statusLabel = StrongBodyLabel('演讲模式未开启', self.statusCard)
-        self.statusLabel.setObjectName('meetingStatusLabel')
+        self.statusLabel = StrongBodyLabel('Coding 模式未开启', self.statusCard)
+        self.statusLabel.setObjectName('codingStatusLabel')
         self.statusLabel.setProperty('active', False)
         self.connectionHint = CaptionLabel('请先连接戒指设备', self.statusCard)
         self.connectionHint.setTextColor(QColor(96, 96, 96), QColor(180, 180, 180))
 
-        self.toggleBtn = TogglePushButton('开启演讲模式', self.statusCard)
-        self.toggleBtn.setFixedWidth(160)
+        self.toggleBtn = TogglePushButton('开启 Coding 模式', self.statusCard)
+        self.toggleBtn.setFixedWidth(180)
         self.toggleBtn.setEnabled(False)
 
         self._buildStatusCard()
 
+        # Settings card
+        self.settingsSection = SubtitleLabel('编程助手设置', self.view)
+        self.settingsCard = SimpleCardWidget(self.view)
+        self.settingsCard.setBorderRadius(12)
+        self.settingsCard.setFixedHeight(72)
+
+        self.assistantLabel = BodyLabel('选择编程助手', self.settingsCard)
+        self.assistantCombo = ComboBox(self.settingsCard)
+        self.assistantCombo.addItems(['claude', 'qoder'])
+        self.assistantCombo.setCurrentText(cfg.get(cfg.codingAssistant))
+        self.assistantCombo.currentTextChanged.connect(self.__onAssistantChanged)
+
+        self.settingsLayout = QHBoxLayout(self.settingsCard)
+        self.settingsLayout.setContentsMargins(20, 16, 20, 16)
+        self.settingsLayout.addWidget(self.assistantLabel)
+        self.settingsLayout.addStretch(1)
+        self.settingsLayout.addWidget(self.assistantCombo)
+
         # Instruction cards section
         self.instructionSection = SubtitleLabel('操作说明', self.view)
 
-        self.nextCard = InstructionCard(
-            FIF.CARE_RIGHT_SOLID,
+        self.continueCard = InstructionCard(
+            FIF.PLAY_SOLID,
             '单击戒指按钮',
-            '下一页 (模拟 → 方向键)',
+            '发送「继续」并回车（继续对话）',
             self.view
         )
-        self.prevCard = InstructionCard(
-            FIF.CARE_LEFT_SOLID,
+        self.launchCard = InstructionCard(
+            FIF.CODE,
             '双击戒指按钮',
-            '上一页 (模拟 ← 方向键)',
+            '打开编程助手（claude/qoder）',
             self.view
         )
 
@@ -119,8 +137,6 @@ class MeetingInterface(ScrollArea):
         cardLayout.setContentsMargins(20, 16, 20, 16)
         cardLayout.setSpacing(16)
 
-        # cardLayout.addWidget(self.statusIcon)
-
         textLayout = QVBoxLayout()
         textLayout.setSpacing(4)
         textLayout.addWidget(self.statusLabel)
@@ -131,7 +147,7 @@ class MeetingInterface(ScrollArea):
         cardLayout.addWidget(self.toggleBtn, 0, Qt.AlignVCenter)
 
     def __initWidget(self):
-        self.setObjectName('meetingInterface')
+        self.setObjectName('codingInterface')
         self.view.setObjectName('view')
 
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -139,7 +155,7 @@ class MeetingInterface(ScrollArea):
         self.setWidgetResizable(True)
         self.enableTransparentBackground()
 
-        StyleSheet.MEETING_INTERFACE.apply(self)
+        StyleSheet.CODING_INTERFACE.apply(self)
 
         self.vBoxLayout.setContentsMargins(36, 24, 36, 36)
         self.vBoxLayout.setSpacing(20)
@@ -150,9 +166,12 @@ class MeetingInterface(ScrollArea):
         self.vBoxLayout.addSpacing(4)
         self.vBoxLayout.addWidget(self.statusCard)
         self.vBoxLayout.addSpacing(8)
+        self.vBoxLayout.addWidget(self.settingsSection)
+        self.vBoxLayout.addWidget(self.settingsCard)
+        self.vBoxLayout.addSpacing(8)
         self.vBoxLayout.addWidget(self.instructionSection)
-        self.vBoxLayout.addWidget(self.nextCard)
-        self.vBoxLayout.addWidget(self.prevCard)
+        self.vBoxLayout.addWidget(self.continueCard)
+        self.vBoxLayout.addWidget(self.launchCard)
         self.vBoxLayout.addStretch(1)
 
         # Signals
@@ -168,13 +187,13 @@ class MeetingInterface(ScrollArea):
     # ── Mode toggle ───────────────────────────────────────────────
 
     def __onToggleMode(self, checked: bool):
-        """Start or stop meeting mode."""
+        """Start or stop coding mode."""
         if checked:
-            self.__startMeetingMode()
+            self.__startCodingMode()
         else:
-            self.__stopMeetingMode()
+            self.__stopCodingMode()
 
-    def __startMeetingMode(self):
+    def __startCodingMode(self):
         client = _get_shared_client()
         if client is None:
             self.toggleBtn.setChecked(False)
@@ -185,41 +204,40 @@ class MeetingInterface(ScrollArea):
 
         self._active = True
         self._register_handlers(client)
-        signalBus.modeStarted.emit('meeting')
-        self.statusLabel.setText('演讲模式已开启 - 监听中')
+        signalBus.modeStarted.emit('coding')
+        self.statusLabel.setText('Coding 模式已开启 - 监听中')
         self.statusLabel.setProperty('active', True)
-        self.toggleBtn.setText('关闭演讲模式')
-        # self.statusIcon.setIcon(FIF.MUTE)
+        self.toggleBtn.setText('关闭 Coding 模式')
 
         # Refresh stylesheet for property change
         self.statusLabel.style().unpolish(self.statusLabel)
         self.statusLabel.style().polish(self.statusLabel)
 
-        InfoBar.success('演讲模式已开启',
-                        '单击=下一页 | 双击=上一页',
+        InfoBar.success('Coding 模式已开启',
+                        '单击=继续 | 双击=打开助手',
                         parent=self.window(), duration=2000,
                         position=InfoBarPosition.TOP_RIGHT)
 
-    def __stopMeetingMode(self):
+    def __stopCodingMode(self):
         client = _get_shared_client()
         if client is not None and self._handlers_registered:
             self._unregister_handlers(client)
 
         self._active = False
-        self.statusLabel.setText('演讲模式未开启')
+        self.statusLabel.setText('Coding 模式未开启')
         self.statusLabel.setProperty('active', False)
-        self.toggleBtn.setText('开启演讲模式')
+        self.toggleBtn.setText('开启 Coding 模式')
 
         self.statusLabel.style().unpolish(self.statusLabel)
         self.statusLabel.style().polish(self.statusLabel)
-        signalBus.modeStopped.emit('meeting')
+        signalBus.modeStopped.emit('coding')
 
     def __onOtherModeStarted(self, mode: str):
-        """Auto-stop meeting mode when another mode starts."""
-        if mode == 'meeting' or not self._active:
+        """Auto-stop coding mode when another mode starts."""
+        if mode == 'coding' or not self._active:
             return
-        self.toggleBtn.setChecked(False)  # triggers __stopMeetingMode
-        InfoBar.info('演讲模式已自动关闭', '已开启其他模式，演讲模式自动退出',
+        self.toggleBtn.setChecked(False)  # triggers __stopCodingMode
+        InfoBar.info('Coding 模式已自动关闭', '已开启其他模式，Coding 模式自动退出',
                      parent=self.window(), duration=2000,
                      position=InfoBarPosition.TOP_RIGHT)
 
@@ -248,23 +266,55 @@ class MeetingInterface(ScrollArea):
         self._handlers_registered = False
 
     async def _on_single_press(self, packet):
-        """Handle single press: next slide."""
-        next_slide()
+        """Handle single press: send "继续" + Enter."""
+        send_text('继续')
+        press_enter()
 
     async def _on_double_press(self, packet):
-        """Handle double press: previous slide."""
-        previous_slide()
+        """Handle double press: launch the configured assistant."""
+        self._launchAssistant()
+
+    def _launchAssistant(self):
+        """Launch the pre-configured programming assistant in a new terminal."""
+        assistant = cfg.get(cfg.codingAssistant)
+        try:
+            if sys.platform == 'win32':
+                # Windows: open in a new cmd window
+                subprocess.Popen(
+                    ['cmd', '/c', 'start', 'cmd', '/k', assistant],
+                    creationflags=subprocess.CREATE_NEW_CONSOLE
+                )
+            elif sys.platform == 'darwin':
+                # macOS: open in Terminal.app
+                subprocess.Popen(['open', '-a', 'Terminal', assistant])
+            else:
+                # Linux: try common terminal emulators
+                subprocess.Popen(['x-terminal-emulator', '-e', assistant])
+
+            InfoBar.success('已启动编程助手',
+                            f'正在打开 {assistant}...',
+                            parent=self.window(), duration=2000,
+                            position=InfoBarPosition.TOP_RIGHT)
+        except Exception as exc:
+            InfoBar.error('启动失败',
+                          f'无法启动 {assistant}：{exc}',
+                          parent=self.window(), duration=3000,
+                          position=InfoBarPosition.TOP_RIGHT)
+
+    def __onAssistantChanged(self, text: str):
+        """Save the assistant choice to config."""
+        cfg.set(cfg.codingAssistant, text)
 
     # ── Connection callbacks ─────────────────────────────────────
 
     def __onDeviceConnected(self, name: str, address: str):
-        self.connectionHint.setText(f'已连接设备，可以开启演讲模式')
+        self.connectionHint.setText(f'已连接设备，可以开启 Coding 模式')
         self.toggleBtn.setEnabled(True)
 
     def __onDeviceDisconnected(self):
-        # Auto-stop meeting mode on disconnect
+        # Auto-stop coding mode on disconnect
         if self._active:
-            self.__stopMeetingMode()
+            self.__stopCodingMode()
         self.connectionHint.setText('请先连接戒指设备')
         self.toggleBtn.setEnabled(False)
         self.toggleBtn.setChecked(False)
