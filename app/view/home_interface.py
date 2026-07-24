@@ -3,7 +3,7 @@ from datetime import datetime
 
 from PyQt5.QtCore import Qt, QRectF, pyqtSignal
 from PyQt5.QtGui import QPixmap, QPainter, QColor, QBrush, QPainterPath, QLinearGradient
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QFrame
 
 from qfluentwidgets import (ScrollArea, isDarkTheme, FluentIcon, PushButton,
                             TitleLabel, BodyLabel, StrongBodyLabel, CaptionLabel,
@@ -149,13 +149,12 @@ class BannerWidget(QWidget):
 
 
 class ModeCard(SimpleCardWidget):
-    """ Mode card widget - large clickable card """
+    """ Compact mode card widget - clickable to navigate """
 
     clicked = pyqtSignal()
 
-    def __init__(self, icon, title, subtitle, parent=None):
+    def __init__(self, title, subtitle, parent=None):
         super().__init__(parent=parent)
-        self.iconWidget = IconWidget(icon, self)
         self.titleLabel = StrongBodyLabel(title, self)
         self.subtitleLabel = CaptionLabel(subtitle, self)
 
@@ -165,19 +164,16 @@ class ModeCard(SimpleCardWidget):
 
     def __initWidget(self):
         self.setObjectName('modeCard')
-        self.setMinimumHeight(140)
+        self.setFixedHeight(80)
         self.setCursor(Qt.PointingHandCursor)
 
-        self.iconWidget.setFixedSize(48, 48)
         self.subtitleLabel.setTextColor(QColor(96, 96, 96), QColor(216, 216, 216))
 
-        self.vBoxLayout.setSpacing(8)
-        self.vBoxLayout.setContentsMargins(24, 24, 24, 24)
-        self.vBoxLayout.addWidget(self.iconWidget)
-        self.vBoxLayout.addSpacing(4)
+        self.vBoxLayout.setContentsMargins(18, 0, 18, 0)
+        self.vBoxLayout.setSpacing(4)
         self.vBoxLayout.addWidget(self.titleLabel)
         self.vBoxLayout.addWidget(self.subtitleLabel)
-        self.vBoxLayout.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.vBoxLayout.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
     def mouseReleaseEvent(self, e):
         super().mouseReleaseEvent(e)
@@ -221,58 +217,30 @@ class HomeInterface(ScrollArea):
         self.vBoxLayout.setAlignment(Qt.AlignTop)
 
     def __loadModeCards(self):
-        """ Load mode cards """
-        # 2x2 grid container
+        """ Load mode cards in a compact 3x2 grid """
         gridWidget = QWidget(self.view)
-        gridLayout = QHBoxLayout(gridWidget)
+        gridLayout = QGridLayout(gridWidget)
         gridLayout.setSpacing(16)
         gridLayout.setContentsMargins(36, 0, 36, 0)
 
-        # Left column
-        leftColumn = QVBoxLayout()
-        leftColumn.setSpacing(16)
+        cards = [
+            ('设备', '查看设备信息与存储状态', signalBus.switchToDevice),
+            ('演讲模式', '戒指按键控制 PPT 翻页', signalBus.switchToMeeting),
+            ('媒体模式', '手势控制视频播放与暂停', signalBus.switchToMultimedia),
+            ('指尖实验室', '实时采集传感器数据', signalBus.switchToSensor),
+            ('水平仪', '可视化查看设备倾斜角度', signalBus.switchToLevel),
+            ('轨迹绘制', '手势在空中绘制轨迹', signalBus.switchToDrawing),
+        ]
 
-        connectCard = ModeCard(
-            FluentIcon.CONNECT,
-            '连接戒指',
-            '连接智能戒指，查看设备状态与数据',
-            self.view
-        )
-        connectCard.clicked.connect(lambda: print('连接戒指'))
-        leftColumn.addWidget(connectCard)
-
-        sleepCard = ModeCard(
-            FluentIcon.POWER_BUTTON,
-            '睡眠模式',
-            '开启睡眠监测，自动记录睡眠数据',
-            self.view
-        )
-        sleepCard.clicked.connect(lambda: print('睡眠模式'))
-        leftColumn.addWidget(sleepCard)
-
-        # Right column
-        rightColumn = QVBoxLayout()
-        rightColumn.setSpacing(16)
-
-        meetingCard = ModeCard(
-            FluentIcon.MUTE,
-            '会议模式',
-            '静音通知，专注会议不被打扰',
-            self.view
-        )
-        meetingCard.clicked.connect(lambda: signalBus.switchToMeeting.emit())
-        rightColumn.addWidget(meetingCard)
-
-        movieCard = ModeCard(
-            FluentIcon.VIDEO,
-            '追剧模式',
-            '手势控制播放，轻松享受影视内容',
-            self.view
-        )
-        movieCard.clicked.connect(lambda: signalBus.switchToMultimedia.emit())
-        rightColumn.addWidget(movieCard)
-
-        gridLayout.addLayout(leftColumn, 1)
-        gridLayout.addLayout(rightColumn, 1)
+        for index, (title, subtitle, signal) in enumerate(cards):
+            card = ModeCard(title, subtitle, self.view)
+            card.clicked.connect(signal.emit)
+            gridLayout.addWidget(card, index // 3, index % 3)
 
         self.vBoxLayout.addWidget(gridWidget)
+
+        moreLabel = CaptionLabel('更多场景开发中', self.view)
+        moreLabel.setTextColor(QColor(96, 96, 96), QColor(216, 216, 216))
+        moreLabel.setAlignment(Qt.AlignCenter)
+        moreLabel.setContentsMargins(36, 4, 36, 0)
+        self.vBoxLayout.addWidget(moreLabel)

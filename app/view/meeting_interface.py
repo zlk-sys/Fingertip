@@ -5,7 +5,6 @@ In meeting mode, the ring button controls slide navigation:
   - Single-click  -> next slide (Right arrow)
   - Double-click  -> previous slide (Left arrow)
 """
-import datetime
 from typing import Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -36,10 +35,10 @@ class InstructionCard(SimpleCardWidget):
     def __init__(self, icon, action_text, key_text, parent=None):
         super().__init__(parent)
         self.setBorderRadius(10)
-        self.setFixedHeight(96)
+        self.setFixedHeight(76)
 
         self.iconWidget = IconWidget(icon, self)
-        self.iconWidget.setFixedSize(36, 36)
+        self.iconWidget.setFixedSize(18, 18)
 
         self.actionLabel = StrongBodyLabel(action_text, self)
         self.keyLabel = CaptionLabel(key_text, self)
@@ -60,26 +59,6 @@ class InstructionCard(SimpleCardWidget):
         self.hBoxLayout.addStretch(1)
 
 
-class EventItem(QWidget):
-    """Single event entry in the event log."""
-
-    def __init__(self, time_str, action, parent=None):
-        super().__init__(parent)
-        self.setObjectName('eventItem')
-
-        self.timeLabel = CaptionLabel(time_str, self)
-        self.timeLabel.setObjectName('eventTimeLabel')
-        self.actionLabel = BodyLabel(action, self)
-        self.actionLabel.setObjectName('eventActionLabel')
-
-        self.hBoxLayout = QHBoxLayout(self)
-        self.hBoxLayout.setContentsMargins(0, 2, 0, 2)
-        self.hBoxLayout.setSpacing(12)
-        self.hBoxLayout.addWidget(self.timeLabel)
-        self.hBoxLayout.addWidget(self.actionLabel)
-        self.hBoxLayout.addStretch(1)
-
-
 class MeetingInterface(ScrollArea):
     """Meeting / PPT mode interface."""
 
@@ -94,7 +73,7 @@ class MeetingInterface(ScrollArea):
         self._handlers_registered = False
 
         # Title
-        self.titleLabel = TitleLabel('翻页模式', self.view)
+        self.titleLabel = TitleLabel('演讲模式', self.view)
         self.subtitleLabel = BodyLabel('使用戒指按钮控制 PPT 翻页', self.view)
 
         # Status card
@@ -104,13 +83,13 @@ class MeetingInterface(ScrollArea):
 
         # self.statusIcon = IconWidget(FIF.MUTE, self.statusCard)
         # self.statusIcon.setFixedSize(40, 40)
-        self.statusLabel = StrongBodyLabel('会议模式未开启', self.statusCard)
+        self.statusLabel = StrongBodyLabel('演讲模式未开启', self.statusCard)
         self.statusLabel.setObjectName('meetingStatusLabel')
         self.statusLabel.setProperty('active', False)
         self.connectionHint = CaptionLabel('请先连接戒指设备', self.statusCard)
         self.connectionHint.setTextColor(QColor(96, 96, 96), QColor(180, 180, 180))
 
-        self.toggleBtn = TogglePushButton('开启会议模式', self.statusCard)
+        self.toggleBtn = TogglePushButton('开启演讲模式', self.statusCard)
         self.toggleBtn.setFixedWidth(160)
         self.toggleBtn.setEnabled(False)
 
@@ -131,21 +110,6 @@ class MeetingInterface(ScrollArea):
             '上一页 (模拟 ← 方向键)',
             self.view
         )
-
-        # Event log section
-        self.eventLogSection = SubtitleLabel('操作记录', self.view)
-        self.eventLogCard = SimpleCardWidget(self.view)
-        self.eventLogCard.setObjectName('eventLogCard')
-        self.eventLogCard.setBorderRadius(10)
-        self.eventLogCard.setMinimumHeight(60)
-        self.eventLogLayout = QVBoxLayout(self.eventLogCard)
-        self.eventLogLayout.setContentsMargins(20, 16, 20, 16)
-        self.eventLogLayout.setSpacing(4)
-
-        self.emptyLogLabel = CaptionLabel('暂无操作记录', self.eventLogCard)
-        self.emptyLogLabel.setAlignment(Qt.AlignCenter)
-        self.emptyLogLabel.setTextColor(QColor(96, 96, 96), QColor(180, 180, 180))
-        self.eventLogLayout.addWidget(self.emptyLogLabel)
 
         self.__initWidget()
 
@@ -189,9 +153,6 @@ class MeetingInterface(ScrollArea):
         self.vBoxLayout.addWidget(self.instructionSection)
         self.vBoxLayout.addWidget(self.nextCard)
         self.vBoxLayout.addWidget(self.prevCard)
-        self.vBoxLayout.addSpacing(8)
-        self.vBoxLayout.addWidget(self.eventLogSection)
-        self.vBoxLayout.addWidget(self.eventLogCard)
         self.vBoxLayout.addStretch(1)
 
         # Signals
@@ -225,16 +186,16 @@ class MeetingInterface(ScrollArea):
         self._active = True
         self._register_handlers(client)
         signalBus.modeStarted.emit('meeting')
-        self.statusLabel.setText('会议模式已开启 - 监听中')
+        self.statusLabel.setText('演讲模式已开启 - 监听中')
         self.statusLabel.setProperty('active', True)
-        self.toggleBtn.setText('关闭会议模式')
+        self.toggleBtn.setText('关闭演讲模式')
         # self.statusIcon.setIcon(FIF.MUTE)
 
         # Refresh stylesheet for property change
         self.statusLabel.style().unpolish(self.statusLabel)
         self.statusLabel.style().polish(self.statusLabel)
 
-        InfoBar.success('会议模式已开启',
+        InfoBar.success('演讲模式已开启',
                         '单击=下一页 | 双击=上一页',
                         parent=self.window(), duration=2000,
                         position=InfoBarPosition.TOP_RIGHT)
@@ -245,9 +206,9 @@ class MeetingInterface(ScrollArea):
             self._unregister_handlers(client)
 
         self._active = False
-        self.statusLabel.setText('会议模式未开启')
+        self.statusLabel.setText('演讲模式未开启')
         self.statusLabel.setProperty('active', False)
-        self.toggleBtn.setText('开启会议模式')
+        self.toggleBtn.setText('开启演讲模式')
 
         self.statusLabel.style().unpolish(self.statusLabel)
         self.statusLabel.style().polish(self.statusLabel)
@@ -258,7 +219,7 @@ class MeetingInterface(ScrollArea):
         if mode == 'meeting' or not self._active:
             return
         self.toggleBtn.setChecked(False)  # triggers __stopMeetingMode
-        InfoBar.info('会议模式已自动关闭', '已开启其他模式，会议模式自动退出',
+        InfoBar.info('演讲模式已自动关闭', '已开启其他模式，演讲模式自动退出',
                      parent=self.window(), duration=2000,
                      position=InfoBarPosition.TOP_RIGHT)
 
@@ -288,41 +249,16 @@ class MeetingInterface(ScrollArea):
 
     async def _on_single_press(self, packet):
         """Handle single press: next slide."""
-        self._log_event('单击', '下一页')
         next_slide()
 
     async def _on_double_press(self, packet):
         """Handle double press: previous slide."""
-        self._log_event('双击', '上一页')
         previous_slide()
-
-    # ── Event log ─────────────────────────────────────────────────
-
-    def _log_event(self, action_type: str, action: str):
-        """Add an event entry to the log."""
-        now = datetime.datetime.now().strftime('%H:%M:%S')
-        # Hide empty label on first event
-        if self.emptyLogLabel.isVisible():
-            self.emptyLogLabel.setVisible(False)
-
-        item = EventItem(now, f'{action_type} → {action}', self.eventLogCard)
-        self.eventLogLayout.insertWidget(
-            0, item)  # newest first
-
-        # Keep max 20 entries
-        while self.eventLogLayout.count() > 21:  # 20 items + possible emptyLabel
-            child = self.eventLogLayout.itemAt(self.eventLogLayout.count() - 1)
-            w = child.widget()
-            if w and w is not self.emptyLogLabel:
-                w.deleteLater()
-                break
-            elif w is self.emptyLogLabel:
-                break
 
     # ── Connection callbacks ─────────────────────────────────────
 
     def __onDeviceConnected(self, name: str, address: str):
-        self.connectionHint.setText(f'已连接设备，可以开启会议模式')
+        self.connectionHint.setText(f'已连接设备，可以开启演讲模式')
         self.toggleBtn.setEnabled(True)
 
     def __onDeviceDisconnected(self):

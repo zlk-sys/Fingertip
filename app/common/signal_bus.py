@@ -19,6 +19,10 @@ class SignalBus(QObject):
     switchToMeeting = pyqtSignal()
     switchToMultimedia = pyqtSignal()
     switchToConnect = pyqtSignal()
+    switchToDevice = pyqtSignal()
+    switchToSensor = pyqtSignal()
+    switchToLevel = pyqtSignal()
+    switchToDrawing = pyqtSignal()
 
     # mode mutual exclusion
     # mode id: 'meeting' / 'multimedia' / 'sensor' / 'level' / 'drawing'

@@ -195,6 +195,14 @@ class MainWindow(FluentWindow):
             lambda: self.switchTo(self.multimediaInterface))
         signalBus.switchToConnect.connect(
             lambda: self.switchTo(self.connectInterface))
+        signalBus.switchToDevice.connect(
+            lambda: self.switchTo(self.deviceInfoInterface))
+        signalBus.switchToSensor.connect(
+            lambda: self.switchTo(self.sensorInterface))
+        signalBus.switchToLevel.connect(
+            lambda: self.switchTo(self.levelInterface))
+        signalBus.switchToDrawing.connect(
+            lambda: self.switchTo(self.drawingInterface))
 
         # Device connect/disconnect for mode probe
         signalBus.deviceConnected.connect(self._onDeviceConnected)
@@ -209,9 +217,9 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.homeInterface, FIF.HOME, self.tr('首页'))
         self.addSubInterface(self.deviceInfoInterface, FIF.DEVELOPER_TOOLS, self.tr('设备'))
         self.navigationInterface.addSeparator()
-        self.addSubInterface(self.meetingInterface, FIF.MUTE, self.tr('会议模式'))
-        self.addSubInterface(self.multimediaInterface, FIF.VIDEO, self.tr('追剧模式'))
-        self.addSubInterface(self.sensorInterface, FIF.MOVE, self.tr('传感器'))
+        self.addSubInterface(self.meetingInterface, FIF.FEEDBACK, self.tr('演讲模式'))
+        self.addSubInterface(self.multimediaInterface, FIF.VIDEO, self.tr('媒体模式'))
+        self.addSubInterface(self.sensorInterface, FIF.MOVE, self.tr('指尖实验室'))
         self.addSubInterface(self.levelInterface, FIF.ROTATE, self.tr('水平仪'))
         self.addSubInterface(self.drawingInterface, FIF.PENCIL_INK, self.tr('轨迹绘制'))
 

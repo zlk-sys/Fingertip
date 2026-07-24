@@ -3,10 +3,7 @@
 
 In multimedia mode, the ring button toggles play/pause of the active media player:
   - Single-click  -> play/pause (VK_MEDIA_PLAY_PAUSE)
-A manual button is also provided for direct control.
 """
-import datetime
-
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
@@ -14,7 +11,7 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
 from qfluentwidgets import (ScrollArea, FluentIcon, TitleLabel, BodyLabel,
                             StrongBodyLabel, CaptionLabel, SubtitleLabel,
                             SimpleCardWidget, TogglePushButton, IconWidget,
-                            PrimaryPushButton, SwitchButton, InfoBar, InfoBarPosition)
+                            SwitchButton, InfoBar, InfoBarPosition)
 from qfluentwidgets import FluentIcon as FIF
 
 from ..common.style_sheet import StyleSheet
@@ -35,10 +32,10 @@ class InstructionCard(SimpleCardWidget):
     def __init__(self, icon, action_text, key_text, parent=None):
         super().__init__(parent)
         self.setBorderRadius(10)
-        self.setFixedHeight(96)
+        self.setFixedHeight(76)
 
         self.iconWidget = IconWidget(icon, self)
-        self.iconWidget.setFixedSize(36, 36)
+        self.iconWidget.setFixedSize(18, 18)
 
         self.actionLabel = StrongBodyLabel(action_text, self)
         self.keyLabel = CaptionLabel(key_text, self)
@@ -59,26 +56,6 @@ class InstructionCard(SimpleCardWidget):
         self.hBoxLayout.addStretch(1)
 
 
-class EventItem(QWidget):
-    """Single event entry in the event log."""
-
-    def __init__(self, time_str, action, parent=None):
-        super().__init__(parent)
-        self.setObjectName('eventItem')
-
-        self.timeLabel = CaptionLabel(time_str, self)
-        self.timeLabel.setObjectName('eventTimeLabel')
-        self.actionLabel = BodyLabel(action, self)
-        self.actionLabel.setObjectName('eventActionLabel')
-
-        self.hBoxLayout = QHBoxLayout(self)
-        self.hBoxLayout.setContentsMargins(0, 2, 0, 2)
-        self.hBoxLayout.setSpacing(12)
-        self.hBoxLayout.addWidget(self.timeLabel)
-        self.hBoxLayout.addWidget(self.actionLabel)
-        self.hBoxLayout.addStretch(1)
-
-
 class MultimediaInterface(ScrollArea):
     """Multimedia / video mode interface."""
 
@@ -94,7 +71,7 @@ class MultimediaInterface(ScrollArea):
         self._doubleTapEnabled = True
 
         # Title
-        self.titleLabel = TitleLabel('追剧模式', self.view)
+        self.titleLabel = TitleLabel('媒体模式', self.view)
         self.subtitleLabel = BodyLabel('使用戒指按钮控制视频播放与暂停', self.view)
 
         # Status card
@@ -102,35 +79,19 @@ class MultimediaInterface(ScrollArea):
         self.statusCard.setBorderRadius(12)
         self.statusCard.setFixedHeight(100)
 
-        self.statusIcon = IconWidget(FIF.VIDEO, self.statusCard)
-        self.statusIcon.setFixedSize(40, 40)
-        self.statusLabel = StrongBodyLabel('追剧模式未开启', self.statusCard)
+        # self.statusIcon = IconWidget(FIF.VIDEO, self.statusCard)
+        # self.statusIcon.setFixedSize(40, 40)
+        self.statusLabel = StrongBodyLabel('媒体模式未开启', self.statusCard)
         self.statusLabel.setObjectName('mediaStatusLabel')
         self.statusLabel.setProperty('active', False)
         self.connectionHint = CaptionLabel('请先连接戒指设备', self.statusCard)
         self.connectionHint.setTextColor(QColor(96, 96, 96), QColor(180, 180, 180))
 
-        self.toggleBtn = TogglePushButton('开启追剧模式', self.statusCard)
+        self.toggleBtn = TogglePushButton('开启媒体模式', self.statusCard)
         self.toggleBtn.setFixedWidth(160)
         self.toggleBtn.setEnabled(False)
 
         self._buildStatusCard()
-
-        # Manual control section
-        self.manualSection = SubtitleLabel('手动控制', self.view)
-        self.manualCard = SimpleCardWidget(self.view)
-        self.manualCard.setBorderRadius(12)
-        self.manualCard.setMinimumHeight(120)
-
-        self.playPauseBtn = PrimaryPushButton('播放 / 暂停', self.manualCard)
-        self.playPauseBtn.setFixedSize(160, 48)
-        self.playPauseBtn.setEnabled(False)
-
-        self.manualLayout = QHBoxLayout(self.manualCard)
-        self.manualLayout.setContentsMargins(20, 16, 20, 16)
-        self.manualLayout.addStretch(1)
-        self.manualLayout.addWidget(self.playPauseBtn)
-        self.manualLayout.addStretch(1)
 
         # Gesture settings section
         self.gestureSection = SubtitleLabel('手势设置', self.view)
@@ -169,22 +130,6 @@ class MultimediaInterface(ScrollArea):
             self.view
         )
 
-        # Event log section
-        self.eventLogSection = SubtitleLabel('操作记录', self.view)
-        self.eventLogCard = SimpleCardWidget(self.view)
-        self.eventLogCard.setObjectName('eventLogCard')
-        self.eventLogCard.setBorderRadius(10)
-        self.eventLogCard.setMinimumHeight(60)
-
-        self.eventLogLayout = QVBoxLayout(self.eventLogCard)
-        self.eventLogLayout.setContentsMargins(20, 16, 20, 16)
-        self.eventLogLayout.setSpacing(4)
-
-        self.emptyLogLabel = CaptionLabel('暂无操作记录', self.eventLogCard)
-        self.emptyLogLabel.setAlignment(Qt.AlignCenter)
-        self.emptyLogLabel.setTextColor(QColor(96, 96, 96), QColor(180, 180, 180))
-        self.eventLogLayout.addWidget(self.emptyLogLabel)
-
         self.__initWidget()
 
     def _buildStatusCard(self):
@@ -193,7 +138,7 @@ class MultimediaInterface(ScrollArea):
         cardLayout.setContentsMargins(20, 16, 20, 16)
         cardLayout.setSpacing(16)
 
-        cardLayout.addWidget(self.statusIcon)
+        # cardLayout.addWidget(self.statusIcon)
 
         textLayout = QVBoxLayout()
         textLayout.setSpacing(4)
@@ -224,9 +169,6 @@ class MultimediaInterface(ScrollArea):
         self.vBoxLayout.addSpacing(4)
         self.vBoxLayout.addWidget(self.statusCard)
         self.vBoxLayout.addSpacing(8)
-        self.vBoxLayout.addWidget(self.manualSection)
-        self.vBoxLayout.addWidget(self.manualCard)
-        self.vBoxLayout.addSpacing(8)
         self.vBoxLayout.addWidget(self.gestureSection)
         self.vBoxLayout.addWidget(self.gestureCard)
         self.vBoxLayout.addSpacing(8)
@@ -234,14 +176,10 @@ class MultimediaInterface(ScrollArea):
         self.vBoxLayout.addWidget(self.playCard)
         self.vBoxLayout.addWidget(self.nextCard)
         self.vBoxLayout.addWidget(self.prevCard)
-        self.vBoxLayout.addSpacing(8)
-        self.vBoxLayout.addWidget(self.eventLogSection)
-        self.vBoxLayout.addWidget(self.eventLogCard)
         self.vBoxLayout.addStretch(1)
 
         # Signals
         self.toggleBtn.toggled.connect(self.__onToggleMode)
-        self.playPauseBtn.clicked.connect(self.__onManualToggle)
         self.doubleTapSwitch.checkedChanged.connect(self.__onDoubleTapSwitchChanged)
         signalBus.deviceConnected.connect(self.__onDeviceConnected)
         signalBus.deviceDisconnected.connect(self.__onDeviceDisconnected)
@@ -272,16 +210,15 @@ class MultimediaInterface(ScrollArea):
         self._active = True
         self._register_handlers(client)
         signalBus.modeStarted.emit('multimedia')
-        self.statusLabel.setText('追剧模式已开启 - 监听中')
+        self.statusLabel.setText('媒体模式已开启 - 监听中')
         self.statusLabel.setProperty('active', True)
-        self.toggleBtn.setText('关闭追剧模式')
-        self.statusIcon.setIcon(FIF.PLAY_SOLID)
-        self.playPauseBtn.setEnabled(True)
+        self.toggleBtn.setText('关闭媒体模式')
+        # self.statusIcon.setIcon(FIF.PLAY_SOLID)
 
         self.statusLabel.style().unpolish(self.statusLabel)
         self.statusLabel.style().polish(self.statusLabel)
 
-        InfoBar.success('追剧模式已开启',
+        InfoBar.success('媒体模式已开启',
                         '单击戒指按钮即可播放/暂停',
                         parent=self.window(), duration=2000,
                         position=InfoBarPosition.TOP_RIGHT)
@@ -292,11 +229,10 @@ class MultimediaInterface(ScrollArea):
             self._unregister_handlers(client)
 
         self._active = False
-        self.statusLabel.setText('追剧模式未开启')
+        self.statusLabel.setText('媒体模式未开启')
         self.statusLabel.setProperty('active', False)
-        self.toggleBtn.setText('开启追剧模式')
-        self.playPauseBtn.setEnabled(False)
-        self.statusIcon.setIcon(FIF.VIDEO)
+        self.toggleBtn.setText('开启媒体模式')
+        # self.statusIcon.setIcon(FIF.VIDEO)
 
         self.statusLabel.style().unpolish(self.statusLabel)
         self.statusLabel.style().polish(self.statusLabel)
@@ -307,7 +243,7 @@ class MultimediaInterface(ScrollArea):
         if mode == 'multimedia' or not self._active:
             return
         self.toggleBtn.setChecked(False)  # triggers __stopMultimediaMode
-        InfoBar.info('追剧模式已自动关闭', '已开启其他模式，追剧模式自动退出',
+        InfoBar.info('媒体模式已自动关闭', '已开启其他模式，媒体模式自动退出',
                      parent=self.window(), duration=2000,
                      position=InfoBarPosition.TOP_RIGHT)
 
@@ -359,44 +295,14 @@ class MultimediaInterface(ScrollArea):
             f'上一首（双击戒指本体）—— {status}'
         )
 
-    def __onManualToggle(self):
-        """Handle manual button click."""
-        self._trigger_media('手动点击', toggle_play_pause)
-
     def _trigger_media(self, source: str, action):
-        """Execute media action and log it."""
+        """Execute media action."""
         action()
-        action_name = {
-            toggle_play_pause: '播放/暂停',
-            next_track: '下一首',
-            previous_track: '上一首',
-        }.get(action, '媒体控制')
-        self._log_event(source, action_name)
-
-    # ── Event log ─────────────────────────────────────────────────
-
-    def _log_event(self, action_type: str, action: str):
-        """Add an event entry to the log."""
-        now = datetime.datetime.now().strftime('%H:%M:%S')
-        if self.emptyLogLabel.isVisible():
-            self.emptyLogLabel.setVisible(False)
-
-        item = EventItem(now, f'{action_type} → {action}', self.eventLogCard)
-        self.eventLogLayout.insertWidget(0, item)
-
-        while self.eventLogLayout.count() > 21:
-            child = self.eventLogLayout.itemAt(self.eventLogLayout.count() - 1)
-            w = child.widget()
-            if w and w is not self.emptyLogLabel:
-                w.deleteLater()
-                break
-            elif w is self.emptyLogLabel:
-                break
 
     # ── Connection callbacks ─────────────────────────────────────
 
     def __onDeviceConnected(self, name: str, address: str):
-        self.connectionHint.setText('已连接设备，可以开启追剧模式')
+        self.connectionHint.setText('已连接设备，可以开启媒体模式')
         self.toggleBtn.setEnabled(True)
 
     def __onDeviceDisconnected(self):

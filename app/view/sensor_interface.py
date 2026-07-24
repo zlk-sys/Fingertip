@@ -143,7 +143,7 @@ class SensorInterface(ScrollArea):
         self._GRAVITY = 9.80665
 
         # Title
-        self.titleLabel = TitleLabel('传感器采集', self.view)
+        self.titleLabel = TitleLabel('指尖实验室', self.view)
         self.subtitleLabel = CaptionLabel(
             '实时采集戒指加速度计与陀螺仪数据并导出 CSV；开始采集前请确保戒指已切换至手势模式',
             self.view
@@ -158,7 +158,7 @@ class SensorInterface(ScrollArea):
         self.statusIcon = IconWidget(FIF.MOVE, self.statusCard)
         self.statusIcon.setFixedSize(40, 40)
 
-        self.statusLabel = StrongBodyLabel('传感器采集未开启', self.statusCard)
+        self.statusLabel = StrongBodyLabel('指尖实验室未开启', self.statusCard)
         self.statusLabel.setObjectName('sensorStatusLabel')
         self.statusLabel.setProperty('active', False)
 
@@ -504,7 +504,7 @@ class SensorInterface(ScrollArea):
         self._accelRangeG = start_info.accel_range_g
         self._gyroRangeDps = start_info.gyro_range_dps
         self._durationTimer.start(200)
-        self.statusLabel.setText('传感器采集中')
+        self.statusLabel.setText('指尖实验室运行中')
         self.statusLabel.setProperty('active', True)
         self.statusIcon.setIcon(FIF.PAUSE)
         self.toggleBtn.setText('停止采集')
@@ -526,7 +526,7 @@ class SensorInterface(ScrollArea):
         self._active = False
         signalBus.modeStopped.emit('sensor')
         self._durationTimer.stop()
-        self.statusLabel.setText('传感器采集已停止')
+        self.statusLabel.setText('指尖实验室已停止')
         self.statusLabel.setProperty('active', False)
         self.statusIcon.setIcon(FIF.MOVE)
         self.toggleBtn.setText('开启采集')
@@ -561,7 +561,7 @@ class SensorInterface(ScrollArea):
         # stop_sensor_report, otherwise it would kill the new mode's stream
         self._collector.stop_collecting(send_stop=mode not in _STREAM_MODES)
         InfoBar.info(
-            '传感器采集已自动停止', '已开启其他模式，采集自动退出',
+            '指尖实验室已自动停止', '已开启其他模式，采集自动退出',
             parent=self.window(), duration=2000,
             position=InfoBarPosition.TOP_RIGHT
         )
