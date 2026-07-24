@@ -11,7 +11,10 @@ from collections import deque
 from pathlib import Path
 from typing import Optional, List, Dict
 
-import sdk.ring_sound as sdk
+try:
+    from .sdk import ring_sound as sdk  # python -m app.train
+except ImportError:
+    import sdk.ring_sound as sdk  # cd app && python train.py
 
 try:
     from hmmlearn import hmm
