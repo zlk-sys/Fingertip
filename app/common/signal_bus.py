@@ -23,12 +23,13 @@ class SignalBus(QObject):
     switchToSensor = pyqtSignal()
     switchToLevel = pyqtSignal()
     switchToDrawing = pyqtSignal()
+    switchToGesture = pyqtSignal()
     switchToCoding = pyqtSignal()
     switchToCollab = pyqtSignal()
     switchToPlugin = pyqtSignal(str)  # plugin_id
 
     # mode mutual exclusion
-    # mode id: 'meeting' / 'multimedia' / 'sensor' / 'level' / 'drawing'
+    # mode id includes sensor streams such as drawing and hmm_gesture
     modeStarted = pyqtSignal(str)
     modeStopped = pyqtSignal(str)
 

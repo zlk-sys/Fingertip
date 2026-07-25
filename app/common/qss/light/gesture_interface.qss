@@ -1,0 +1,25 @@
+GestureInterface, #view {
+    background-color: transparent;
+}
+
+QScrollArea {
+    background-color: transparent;
+    border: none;
+}
+
+#gestureStatusLabel[active="true"] {
+    color: #00a854;
+}
+
+#gestureStatusLabel[active="false"] {
+    color: #5c5c5c;
+}
+
+#gestureResultLabel {
+    color: #0078d4;
+    font-size: 16px;
+}
+
+#gestureDiagnosticLabel {
+    color: #5c5c5c;
+}

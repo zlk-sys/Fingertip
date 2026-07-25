@@ -127,7 +127,7 @@ class _CollectorThread(QThread):
 
 
 # Modes that consume the sensor data stream (start/stop_sensor_report)
-_STREAM_MODES = ('sensor', 'level', 'drawing')
+_STREAM_MODES = ('sensor', 'level', 'drawing', 'hmm_gesture')
 
 
 class LevelInterface(ScrollArea):

@@ -35,7 +35,7 @@ def _get_shared_client():
 
 
 # Modes that consume the sensor data stream (start/stop_sensor_report)
-_STREAM_MODES = ('sensor', 'level', 'drawing')
+_STREAM_MODES = ('sensor', 'level', 'drawing', 'hmm_gesture')
 
 
 @dataclass

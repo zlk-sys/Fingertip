@@ -12,6 +12,12 @@ build/
 dist/
 __pycache__/
 
+# Runtime HMM recordings created from the gesture page
+app/hmm_gesture/gesture_data/*.json
+!app/hmm_gesture/gesture_data/.gitkeep
+app/hmm_gesture/models/*.pkl
+app/hmm_gesture/model_backups/
+
 # IDE
 .vscode/
 .idea/

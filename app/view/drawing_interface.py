@@ -28,7 +28,7 @@ from ..sdk.ring_sound import (SensorCommand, start_sensor_report,
 from ..trajectory import TrackingPhase, TrajectoryEngine
 
 
-_STREAM_MODES = ('sensor', 'level', 'drawing')
+_STREAM_MODES = ('sensor', 'level', 'drawing', 'hmm_gesture')
 _CALIBRATION_PHASES = {
     TrackingPhase.CALIBRATING_RIGHT,
     TrackingPhase.CALIBRATING_STILL,
@@ -504,11 +504,11 @@ class DrawingInterface(ScrollArea):
             TrackingPhase.READY: (
                 '轨迹引擎已就绪', '改变佩戴角度后请执行「佩戴校准」'),
             TrackingPhase.CALIBRATING_RIGHT: (
-                '佩戴校准 1/2', '请向右挥动一次，然后停住'),
+                '佩戴校准 1/2', '保持手的位置，向右转动手腕一次，然后停住'),
             TrackingPhase.CALIBRATING_STILL: (
                 '佩戴校准', '很好，请保持静止'),
             TrackingPhase.CALIBRATING_UP: (
-                '佩戴校准 2/2', '请向上挥动一次，然后停住'),
+                '佩戴校准 2/2', '保持手的位置，向上转动手腕一次，然后停住'),
             TrackingPhase.TRACKING: (
                 '轨迹绘制中', '佩戴方向已校准'),
         }

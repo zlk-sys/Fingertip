@@ -14,6 +14,7 @@ PyQt-Fluent-Widgets
 
 # --- Data & Visualization ---
 numpy
+scipy
 pyqtgraph
 PyOpenGL
 hmmlearn

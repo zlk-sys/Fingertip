@@ -2,6 +2,11 @@
 import os
 import sys
 
+# On the bundled Windows/Python runtime, hmmlearn's native extension must be
+# loaded before Qt's native libraries.  Reversing this order can crash during
+# import rather than raise a Python exception.
+from app.hmm_gesture import core as _hmm_gesture_core  # noqa: F401
+
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QSurfaceFormat
 from PyQt5.QtWidgets import QApplication

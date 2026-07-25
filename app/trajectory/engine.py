@@ -104,20 +104,19 @@ class TrajectoryEngine:
     GYRO_EXIT_DPS = 1.8
     STILL_SAMPLES = 7
     BIAS_SAMPLES = 30
-    # The ring can have a sizeable but stable factory gyro offset.  Recorded
-    # stationary hardware data reaches about 10.4 dps, so an 8 dps absolute
-    # gate rejects every sample and leaves startup stuck in STABILIZING.
-    # Window variance below still distinguishes a stable zero bias from
-    # ordinary hand movement; this ceiling only rejects clearly moving data.
-    BIAS_MAX_RATE_DPS = 20.0
-    BIAS_MAX_STD_DPS = 0.8
-    BIAS_MAX_ACCEL_STD_G = 0.025
+    # Startup learns the device's zero offset, so the absolute gyro reading
+    # cannot also be used as a "still" gate.  Real rings can report a stable
+    # 10+ dps factory offset.  Stability across the window is the useful
+    # signal, with enough tolerance for normal tremor while worn.
+    BIAS_MAX_STD_DPS = 3.0
+    BIAS_MAX_ACCEL_STD_G = 0.050
     BIAS_TRACK_RATE = 0.025
     ACCEL_FILTER_ALPHA = 0.30
     RATE_NOISE_GATE_DPS = 0.20
     MAX_DT_S = 0.10
     CALIBRATION_TIMEOUT_S = 8.0
     CALIBRATION_STILL_SAMPLES = 8
+    CALIBRATION_STILL_DPS = 5.0
 
     def __init__(self):
         self.orientation = OrientationFilter()
@@ -248,9 +247,7 @@ class TrajectoryEngine:
 
     def _try_bootstrap(self, accel_g, gyro_dps):
         accel_error = abs(float(np.linalg.norm(accel_g)) - 1.0)
-        if (accel_error <= self.ACCEL_ENTER_TOL_G
-                and float(np.linalg.norm(gyro_dps))
-                <= self.BIAS_MAX_RATE_DPS):
+        if accel_error <= self.ACCEL_ENTER_TOL_G:
             self._bias_gyro.append(gyro_dps.copy())
             self._bias_accel.append(accel_g.copy())
         else:
@@ -357,7 +354,15 @@ class TrajectoryEngine:
             return
 
         if self.phase == TrackingPhase.CALIBRATING_STILL:
-            if self._stationary:
+            # The normal drawing stationary gate is intentionally strict so
+            # slow deliberate strokes are not swallowed.  Guided calibration
+            # only needs to know that the swing has ended, and therefore uses
+            # a separate hand-tremor-tolerant threshold.
+            calibration_still = (
+                self._stationary
+                or float(np.linalg.norm(angular_velocity_ref))
+                <= self.CALIBRATION_STILL_DPS)
+            if calibration_still:
                 self._calibration_still_count += 1
             else:
                 self._calibration_still_count = 0

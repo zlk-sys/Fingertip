@@ -85,6 +85,30 @@ class TrajectoryEngineTest(unittest.TestCase):
         np.testing.assert_allclose(
             replay.engine._gyro_bias, replay.bias_body_dps, atol=0.07)
 
+    def test_bootstrap_accepts_normal_worn_hand_tremor(self):
+        replay = self.make_replay()
+
+        replay.feed(
+            [0.0, 0.0, 0.0], 45,
+            gyro_noise_raw=30,
+        )
+
+        self.assertTrue(replay.engine.bias_ready)
+        self.assertEqual(replay.engine.phase, TrackingPhase.READY)
+
+    def test_wearing_calibration_advances_after_swing_with_hand_tremor(self):
+        replay = self.make_replay()
+        replay.stabilize()
+        self.assertTrue(replay.engine.begin_wearing_calibration())
+
+        replay.feed([0.0, 0.0, -40.0], 25)
+        replay.feed(
+            [0.0, 0.0, 0.0], 18,
+            gyro_noise_raw=20,
+        )
+
+        replay.assert_phase(TrackingPhase.CALIBRATING_UP)
+
     def test_same_angle_has_same_length_at_different_speeds(self):
         positions = []
         for rate in (15.0, 30.0, 60.0, 100.0):

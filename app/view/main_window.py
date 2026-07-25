@@ -19,6 +19,7 @@ from .multimedia_interface import MultimediaInterface
 from .sensor_interface import SensorInterface
 from .level_interface import LevelInterface
 from .drawing_interface import DrawingInterface
+from .gesture_interface import GestureInterface
 from .coding_interface import CodingInterface
 from .collab_interface import CollabInterface
 from .setting_interface import SettingInterface
@@ -162,6 +163,7 @@ class MainWindow(FluentWindow):
         self.sensorInterface = SensorInterface(self)
         self.levelInterface = LevelInterface(self)
         self.drawingInterface = DrawingInterface(self)
+        self.gestureInterface = GestureInterface(self)
         self.codingInterface = CodingInterface(self)
         self.collabInterface = CollabInterface(self)
         self.settingInterface = SettingInterface(self)
@@ -233,6 +235,8 @@ class MainWindow(FluentWindow):
             lambda: self.switchTo(self.levelInterface))
         signalBus.switchToDrawing.connect(
             lambda: self.switchTo(self.drawingInterface))
+        signalBus.switchToGesture.connect(
+            lambda: self.switchTo(self.gestureInterface))
         signalBus.switchToCoding.connect(
             lambda: self.switchTo(self.codingInterface))
         signalBus.switchToCollab.connect(
@@ -259,6 +263,7 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.sensorInterface, FIF.MOVE, self.tr('指尖实验室'))
         self.addSubInterface(self.levelInterface, FIF.ROTATE, self.tr('水平仪'))
         self.addSubInterface(self.drawingInterface, FIF.PENCIL_INK, self.tr('轨迹绘制'))
+        self.addSubInterface(self.gestureInterface, FIF.ROBOT, self.tr('HMM 手势'))
         self.addSubInterface(self.codingInterface, FIF.CODE, self.tr('Coding 模式'))
         self.addSubInterface(self.collabInterface, FIF.CHAT, self.tr('协同模式'))
 
@@ -339,7 +344,7 @@ class MainWindow(FluentWindow):
         self.modeProbeThread.set_paused(False)
 
     def _onModeStarted(self, mode: str):
-        if mode in ('sensor', 'level', 'drawing'):
+        if mode in ('sensor', 'level', 'drawing', 'hmm_gesture'):
             self._activeStreamModes.add(mode)
             self.modeProbeThread.set_paused(True)
             # Stream started successfully => device must be in gesture mode

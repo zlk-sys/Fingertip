@@ -236,6 +236,7 @@ class HomeInterface(ScrollArea):
             ('水平仪', '可视化查看设备倾斜角度', signalBus.switchToLevel),
             ('轨迹绘制', '手势在空中绘制轨迹', signalBus.switchToDrawing),
             ('Coding 模式', '双击戒指快速启动助手', signalBus.switchToCoding),
+            ('HMM 手势', '采集、训练并实时识别手势', signalBus.switchToGesture),
             ('协同模式', '语音录音转写并 AI 回答', signalBus.switchToCollab),
         ]
 

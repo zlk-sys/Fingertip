@@ -16,6 +16,7 @@ class StyleSheet(StyleSheetBase, Enum):
     SENSOR_INTERFACE = "sensor_interface"
     LEVEL_INTERFACE = "level_interface"
     DRAWING_INTERFACE = "drawing_interface"
+    HMM_GESTURE_INTERFACE = "gesture_interface"
     CODING_INTERFACE = "coding_interface"
     COLLAB_INTERFACE = "collab_interface"
 
