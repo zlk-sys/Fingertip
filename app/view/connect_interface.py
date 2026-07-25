@@ -711,6 +711,7 @@ class ConnectInterface(ScrollArea):
 
         self._reconnecting = True
         self._reconnectAttempts = 0
+        signalBus.deviceReconnecting.emit()
         self.__tryReconnect()
 
     def __tryReconnect(self):

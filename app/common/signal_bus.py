@@ -12,6 +12,7 @@ class SignalBus(QObject):
     # device connection
     deviceConnected = pyqtSignal(str, str)      # name, address
     deviceDisconnected = pyqtSignal()
+    deviceReconnecting = pyqtSignal()            # auto-reconnect started
     systemInfoReceived = pyqtSignal(object)
     refreshSystemInfoRequested = pyqtSignal()
 

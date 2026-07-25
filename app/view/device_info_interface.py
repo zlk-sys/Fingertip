@@ -261,10 +261,17 @@ class DeviceInfoInterface(ScrollArea):
     def __connectSignalToSlot(self):
         signalBus.deviceConnected.connect(self.__onDeviceConnected)
         signalBus.deviceDisconnected.connect(self.__onDeviceDisconnected)
+        signalBus.deviceReconnecting.connect(self.__onDeviceReconnecting)
         signalBus.systemInfoReceived.connect(self.__onSystemInfoReceived)
         signalBus.systemInfoReceived.connect(self.__onRefreshFinished)
         self.alertBanner.reconnectClicked.connect(self.__onReconnect)
         self.refreshBtn.clicked.connect(self.__onRefreshData)
+
+    def __onDeviceReconnecting(self):
+        """Device is reconnecting automatically."""
+        self.statusLabel.setText('重连中...')
+        self.statusLabel.setProperty('connected', False)
+        self.refreshBtn.setEnabled(False)
 
     def __reset(self):
         self.nameLabel.setText('未连接设备')

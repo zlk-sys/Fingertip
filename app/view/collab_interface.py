@@ -481,8 +481,25 @@ class CollabInterface(ScrollArea):
         # Bring window to front and switch to collab page
         window = self.window()
         if window:
-            window.activateWindow()
-            window.raise_()
+            import sys
+            if sys.platform == 'win32':
+                import ctypes
+                hwnd = int(window.winId())
+                SWP_NOMOVE = 0x0002
+                SWP_NOSIZE = 0x0001
+                SWP_SHOWWINDOW = 0x0040
+                SW_RESTORE = 9
+                user32 = ctypes.windll.user32
+                # Restore if minimized
+                user32.ShowWindow(hwnd, SW_RESTORE)
+                # Force to foreground
+                user32.SetWindowPos(
+                    hwnd, -1, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+                user32.SetForegroundWindow(hwnd)
+            else:
+                window.activateWindow()
+                window.raise_()
         signalBus.switchToCollab.emit()
 
         self._removeStatusBubble()

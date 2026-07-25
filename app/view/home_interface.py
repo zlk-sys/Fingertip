@@ -70,9 +70,9 @@ class BannerWidget(QWidget):
 
         self.vBoxLayout = QVBoxLayout(self)
         self.titleLabel = TitleLabel(f'{self.get_time_period()}好，这里是Fingertip👋', self)
-        self.subtitleLabel = BodyLabel('指尖控万物', self)
+        self.subtitleLabel = BodyLabel('一款有超多功能的指间工具箱', self)
         self.connectStatus = AlertBanner(self)
-        self.connectStatus.messageLabel.setText('当前尚未连接戒指，快去连接以开启智慧生活')
+        self.connectStatus.messageLabel.setText('我们迫不及待想向你展示这些功能，不过请先连接你的戒指吧~')
         self.connectStatus.reconnectBtn.setText('去连接')
         self.connectStatus.reconnectBtn.setVisible(True)
 

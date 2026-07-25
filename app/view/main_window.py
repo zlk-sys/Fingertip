@@ -35,6 +35,7 @@ from ..common.plugin_manager import PluginManager
 MODE_RECORDING = '录音模式'
 MODE_GESTURE = '手势模式'
 MODE_UNKNOWN = '未知模式'
+MODE_RECONNECTING = '重连中'
 
 
 class ModeProbeThread(QThread):
@@ -139,6 +140,8 @@ class ModeIndicator(QWidget):
             color = '#4dcb66' if isDarkTheme() else '#00a854'
         elif mode == MODE_RECORDING:
             color = '#ff7043' if isDarkTheme() else '#e64a19'
+        elif mode == MODE_RECONNECTING:
+            color = '#ffb300' if isDarkTheme() else '#f57c00'
         else:
             color = '#8a8a8a' if isDarkTheme() else '#5c5c5c'
 
@@ -252,6 +255,7 @@ class MainWindow(FluentWindow):
         # Device connect/disconnect for mode probe
         signalBus.deviceConnected.connect(self._onDeviceConnected)
         signalBus.deviceDisconnected.connect(self._onDeviceDisconnected)
+        signalBus.deviceReconnecting.connect(self._onDeviceReconnecting)
 
         # Mode mutual exclusion: pause probe while a stream mode is running
         signalBus.modeStarted.connect(self._onModeStarted)
@@ -266,7 +270,7 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.multimediaInterface, FIF.VIDEO, self.tr('媒体模式'))
         self.addSubInterface(self.sensorInterface, FIF.MOVE, self.tr('指尖实验室'))
         self.addSubInterface(self.levelInterface, FIF.ROTATE, self.tr('水平仪'))
-        self.addSubInterface(self.drawingInterface, FIF.PENCIL_INK, self.tr('轨迹绘制'))
+        self.addSubInterface(self.drawingInterface, FIF.PENCIL_INK, self.tr('轨迹绘制（Beta）'))
         self.addSubInterface(self.gestureInterface, FIF.ROBOT, self.tr('手语实验室（Beta）'))
         self.addSubInterface(self.gestureMappingInterface, FIF.LABEL, self.tr('手势映射'))
         self.addSubInterface(self.codingInterface, FIF.CODE, self.tr('Coding 模式'))
@@ -348,6 +352,14 @@ class MainWindow(FluentWindow):
         self._activeStreamModes.clear()
         self.modeProbeThread.set_paused(False)
 
+    def _onDeviceReconnecting(self):
+        """Device is auto-reconnecting, show reconnecting state."""
+        self.modeProbeThread.stop()
+        self.modeProbeThread.wait(3000)
+        self.modeIndicator.setMode(MODE_RECONNECTING)
+        self._activeStreamModes.clear()
+        self.modeProbeThread.set_paused(False)
+
     def _onModeStarted(self, mode: str):
         if mode in ('sensor', 'level', 'drawing', 'hmm_gesture'):
             self._activeStreamModes.add(mode)
@@ -364,3 +376,4 @@ class MainWindow(FluentWindow):
         """Switch to a plugin page."""
         if plugin_id in self.pluginInterfaces:
             self.switchTo(self.pluginInterfaces[plugin_id])
+

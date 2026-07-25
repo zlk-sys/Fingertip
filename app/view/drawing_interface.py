@@ -150,7 +150,7 @@ class DrawingInterface(ScrollArea):
     # ── UI construction ─────────────────────────────────────
 
     def _buildHeader(self):
-        self.titleLabel = TitleLabel('轨迹绘制', self.view)
+        self.titleLabel = TitleLabel('轨迹绘制（Beta）', self.view)
         self.subtitleLabel = CaptionLabel(
             '六轴姿态跟踪会将不同佩戴角度统一到同一个绘画平面；'
             '改变佩戴方式后执行一次佩戴校准',
