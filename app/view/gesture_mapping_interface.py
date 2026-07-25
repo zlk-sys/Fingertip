@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QEvent
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
@@ -101,6 +101,10 @@ class KeyRecorderDialog(MessageBoxBase):
         self._final_keys: list[str] = []
 
         # ---- UI ----
+        # MessageBoxBase 没有内置 titleLabel，需自行创建标题标签
+        self._titleLabel = SubtitleLabel('录制快捷键', self.widget)
+        self._titleLabel.setAlignment(Qt.AlignCenter)
+
         self._hintLabel = CaptionLabel('请按下快捷键组合…', self.widget)
         self._hintLabel.setAlignment(Qt.AlignCenter)
 
@@ -109,41 +113,61 @@ class KeyRecorderDialog(MessageBoxBase):
         self._keyDisplayLabel.setAlignment(Qt.AlignCenter)
         self._keyDisplayLabel.setMinimumHeight(80)
 
+        self.viewLayout.addWidget(self._titleLabel)
         self.viewLayout.addWidget(self._hintLabel)
         self.viewLayout.addWidget(self._keyDisplayLabel)
 
-        # 设置对话框标题
-        self.titleLabel.setText('录制快捷键')
+        # 设置按钮文本
         self.yesButton.setText('确定')
         self.cancelButton.setText('取消')
 
-        # 让 widget 能够接收键盘事件
+        # MessageBoxBase 默认会把焦点设在「确定」按钮上，直接重写对话框的
+        # keyPressEvent 收不到按键。改用在所有可获焦控件上安装事件过滤器，
+        # 确保无论焦点落在哪个控件上都能捕获按键。
         self.widget.setFocusPolicy(Qt.StrongFocus)
+        for target in (self.widget, self.yesButton, self.cancelButton):
+            target.installEventFilter(self)
+
+    def showEvent(self, event):  # noqa: N802
+        super().showEvent(event)
+        # 必须在对话框真正显示之后设置焦点才会生效
         self.widget.setFocus()
 
-    # ---- 键盘事件 ----
-    def keyPressEvent(self, event):  # noqa: N802
+    # ---- 键盘事件（通过事件过滤器捕获） ----
+    def eventFilter(self, obj, event):  # noqa: N802
+        if event.type() == QEvent.KeyPress:
+            if self._handleKeyPress(event):
+                return True
+        elif event.type() == QEvent.KeyRelease:
+            if self._handleKeyRelease(event):
+                return True
+        return super().eventFilter(obj, event)
+
+    def _handleKeyPress(self, event) -> bool:
         key = event.key()
         name = _qt_key_to_name(key)
         if name is None:
-            super().keyPressEvent(event)
-            return
+            return False
 
         if key in _MODIFIER_MAP:
             self._modifiers.add(name)
+            self._hintLabel.setText('已按下修饰键，请继续按主键…')
         else:
             # 非修饰键：组合当前修饰键 + 该键
             keys = sorted(self._modifiers) + [name]
             self._final_keys = keys
             display = ' + '.join(k.capitalize() for k in keys)
             self._keyDisplayLabel.setText(display)
+            self._hintLabel.setText('录制成功，点击「确定」保存')
+        return True
 
-    def keyReleaseEvent(self, event):  # noqa: N802
+    def _handleKeyRelease(self, event) -> bool:
         key = event.key()
         name = _qt_key_to_name(key)
         if name is not None and key in _MODIFIER_MAP:
             self._modifiers.discard(name)
-        super().keyReleaseEvent(event)
+            return True
+        return False
 
     # ---- 公共接口 ----
     def getKeys(self) -> list[str]:
