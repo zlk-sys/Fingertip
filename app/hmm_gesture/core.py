@@ -59,6 +59,230 @@ class SignalFilter:
         return data
 
 
+class RobustPreprocessor:
+    """Coordinate normalization and amplitude normalization for robust
+    gesture recognition across different wearing orientations and amplitudes.
+
+    Processing steps:
+    1. Gravity separation via complementary filter
+    2. Coordinate frame alignment (gravity → canonical Z axis)
+    3. Amplitude normalization (RMS-based scaling)
+
+    This makes features invariant to:
+    - Sensor wearing angle (clockwise/counterclockwise, 0°/45°/90°/135°/180°)
+    - Gesture amplitude scaling (0.7×–1.3×)
+    """
+
+    def __init__(
+            self,
+            gravity_alpha: float = 0.98,
+            calibration_frames: int = 10,
+            target_accel_rms: float = 1000.0,
+            target_gyro_rms: float = 500.0,
+            enable_coordinate_norm: bool = True,
+            enable_amplitude_norm: bool = True):
+        self.gravity_alpha = float(gravity_alpha)
+        self.calibration_frames = max(3, int(calibration_frames))
+        self.target_accel_rms = float(target_accel_rms)
+        self.target_gyro_rms = float(target_gyro_rms)
+        self.enable_coordinate_norm = bool(enable_coordinate_norm)
+        self.enable_amplitude_norm = bool(enable_amplitude_norm)
+
+    def apply(self, filtered: np.ndarray) -> np.ndarray:
+        """Preprocess an ``(N, 6)`` filtered IMU array.
+
+        Returns ``(N, 6)`` with coordinate-normalized and amplitude-normalized
+        data: [lin_ax, lin_ay, lin_az, gx, gy, gz].
+        """
+        data = np.asarray(filtered, dtype=np.float64)
+        if data.ndim != 2 or data.shape[1] != 6:
+            raise ValueError(
+                f'Expected (N, 6) array, got {data.shape}')
+        if len(data) == 0:
+            return data.copy()
+
+        accel = data[:, :3].copy()
+        gyro = data[:, 3:6].copy()
+
+        if self.enable_coordinate_norm:
+            accel, gyro = self._normalize_coordinates(accel, gyro)
+
+        if self.enable_amplitude_norm:
+            accel, gyro = self._normalize_amplitude(accel, gyro)
+
+        return np.hstack([accel, gyro])
+
+    def _separate_gravity(
+            self, accel: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Complementary filter gravity separation.
+
+        Returns (linear_acceleration, gravity_vector_per_frame).
+        """
+        n = len(accel)
+        gravity = np.zeros(3, dtype=np.float64)
+        gravity_frames = np.zeros((n, 3), dtype=np.float64)
+        alpha = self.gravity_alpha
+
+        for i in range(n):
+            gravity = alpha * gravity + (1.0 - alpha) * accel[i]
+            gravity_frames[i] = gravity
+
+        linear = accel - gravity_frames
+        return linear, gravity_frames
+
+    def _normalize_coordinates(
+            self,
+            accel: np.ndarray,
+            gyro: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Align coordinate frame so Z axis points along gravity.
+
+        Uses the average gravity direction from calibration frames to compute
+        a rotation matrix (Rodrigues) that maps the observed gravity direction
+        to the canonical [0, 0, -1] (sensor Z-up convention with gravity
+        pulling down).
+        """
+        linear, gravity_frames = self._separate_gravity(accel)
+
+        # Use calibration frames to estimate stable gravity direction
+        cal_count = min(self.calibration_frames, len(gravity_frames))
+        gravity_ref = gravity_frames[:cal_count].mean(axis=0)
+        gravity_norm = np.linalg.norm(gravity_ref)
+
+        if gravity_norm < 1e-6:
+            # Cannot determine orientation; skip normalization
+            return linear, gyro
+
+        # Canonical direction: gravity should point along -Z (i.e. [0, 0, -g])
+        gravity_dir = gravity_ref / gravity_norm
+        target_dir = np.array([0.0, 0.0, -1.0])
+
+        rotation = _rotation_between_vectors(gravity_dir, target_dir)
+
+        # Apply rotation to all frames
+        linear_rotated = (rotation @ linear.T).T
+        gyro_rotated = (rotation @ gyro.T).T
+
+        return linear_rotated, gyro_rotated
+
+    def _normalize_amplitude(
+            self,
+            accel: np.ndarray,
+            gyro: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Scale signals to target RMS amplitude.
+
+        This ensures gestures performed at 0.7×–1.3× of training amplitude
+        produce similar feature magnitudes.
+        """
+        accel_rms = float(np.sqrt(np.mean(accel ** 2)))
+        if accel_rms > 1e-6:
+            accel = accel * (self.target_accel_rms / accel_rms)
+
+        gyro_rms = float(np.sqrt(np.mean(gyro ** 2)))
+        if gyro_rms > 1e-6:
+            gyro = gyro * (self.target_gyro_rms / gyro_rms)
+
+        return accel, gyro
+
+
+def _rotation_between_vectors(
+        source: np.ndarray, target: np.ndarray) -> np.ndarray:
+    """Compute the rotation matrix that rotates *source* direction to *target*.
+
+    Uses Rodrigues' rotation formula.  Both inputs must be unit vectors.
+    """
+    v = np.cross(source, target)
+    c = float(np.dot(source, target))
+    s = float(np.linalg.norm(v))
+
+    if s < 1e-8:
+        # Vectors are (anti-)parallel
+        if c > 0:
+            return np.eye(3)
+        # 180° rotation: find a perpendicular axis
+        perp = (np.array([1.0, 0.0, 0.0])
+                if abs(source[0]) < 0.9
+                else np.array([0.0, 1.0, 0.0]))
+        axis = np.cross(source, perp)
+        axis /= np.linalg.norm(axis)
+        # Rotation of π around axis: R = 2*outer(axis, axis) - I
+        return 2.0 * np.outer(axis, axis) - np.eye(3)
+
+    vx = np.array([
+        [0.0, -v[2], v[1]],
+        [v[2], 0.0, -v[0]],
+        [-v[1], v[0], 0.0],
+    ])
+    rotation = np.eye(3) + vx + (vx @ vx) * ((1.0 - c) / (s * s))
+    return rotation
+
+
+def _augment_rotation(
+        data: np.ndarray,
+        max_angle_deg: float = 180.0) -> np.ndarray:
+    """Apply a random rotation around the Z axis (gravity-aligned).
+
+    This simulates different wearing angles around the finger.
+    """
+    angle = np.random.uniform(-max_angle_deg, max_angle_deg)
+    return _apply_fixed_rotation(data, angle)
+
+
+def _apply_fixed_rotation(data: np.ndarray, angle_deg: float) -> np.ndarray:
+    """Apply a fixed rotation around the Z axis to (N, 6) IMU data."""
+    theta = np.radians(angle_deg)
+    cos_t, sin_t = np.cos(theta), np.sin(theta)
+    rot_z = np.array([
+        [cos_t, -sin_t, 0.0],
+        [sin_t, cos_t, 0.0],
+        [0.0, 0.0, 1.0],
+    ])
+    augmented = data.copy()
+    augmented[:, :3] = (rot_z @ data[:, :3].T).T
+    augmented[:, 3:6] = (rot_z @ data[:, 3:6].T).T
+    return augmented
+
+
+def _augment_tilt(
+        data: np.ndarray,
+        max_angle_deg: float = 30.0) -> np.ndarray:
+    """Apply a random tilt rotation (around X or Y axis).
+
+    This simulates the sensor being worn at a slight angle relative to the
+    finger surface.
+    """
+    angle = np.random.uniform(-max_angle_deg, max_angle_deg)
+    theta = np.radians(angle)
+    cos_t, sin_t = np.cos(theta), np.sin(theta)
+    # Randomly choose X or Y axis for tilt
+    if np.random.random() < 0.5:
+        rot = np.array([
+            [1.0, 0.0, 0.0],
+            [0.0, cos_t, -sin_t],
+            [0.0, sin_t, cos_t],
+        ])
+    else:
+        rot = np.array([
+            [cos_t, 0.0, sin_t],
+            [0.0, 1.0, 0.0],
+            [-sin_t, 0.0, cos_t],
+        ])
+    augmented = data.copy()
+    augmented[:, :3] = (rot @ data[:, :3].T).T
+    augmented[:, 3:6] = (rot @ data[:, 3:6].T).T
+    return augmented
+
+
+def _augment_amplitude(
+        data: np.ndarray,
+        scale_range: tuple[float, float] = (0.7, 1.3)) -> np.ndarray:
+    """Apply random amplitude scaling to simulate different gesture sizes."""
+    scale = np.random.uniform(scale_range[0], scale_range[1])
+    augmented = data.copy()
+    augmented[:, :3] *= scale
+    augmented[:, 3:6] *= scale
+    return augmented
+
+
 class FeatureExtractor:
     """Sliding-window mean/variance/RMS/zero-crossing features."""
 
@@ -293,6 +517,7 @@ class HMMRecognizer:
         self.model_dir = Path(model_dir)
         self.sample_rate = max(1.0, float(sample_rate))
         self.filter = SignalFilter(sample_rate, cutoff_hz)
+        self.preprocessor = RobustPreprocessor()
         self.extractor = FeatureExtractor(window_size, window_overlap)
         self.min_confidence = float(min_confidence)
         self.segmenter = MotionSegmenter(sample_rate=sample_rate)
@@ -318,12 +543,16 @@ class HMMRecognizer:
         self.rejected_segments = 0
         self.last_rejection = None
         self.last_decision = None
+        self._model_versions: dict[str, int] = {}
         if not self.model_dir.exists():
             return
         for model_path in sorted(self.model_dir.glob('*.pkl')):
             try:
                 with model_path.open('rb') as file:
-                    self._models[model_path.stem] = pickle.load(file)
+                    model = pickle.load(file)
+                self._models[model_path.stem] = model
+                self._model_versions[model_path.stem] = int(
+                    getattr(model, 'gesture_pipeline_version_', 2))
             except Exception as exc:
                 self.load_errors.append(f'{model_path.name}: {exc}')
         self._calibrate_acceptance_thresholds()
@@ -374,9 +603,14 @@ class HMMRecognizer:
                 continue
 
             scores = []
+            version = self._model_versions.get(name, 2)
             for repetition in reference_repetitions:
-                features = self.extractor.extract(
-                    self.filter.apply(repetition))
+                filtered_rep = self.filter.apply(repetition)
+                if version >= 3:
+                    features = self.extractor.extract(
+                        self.preprocessor.apply(filtered_rep))
+                else:
+                    features = self.extractor.extract(filtered_rep)
                 if len(features) < 2:
                     continue
                 try:
@@ -464,14 +698,22 @@ class HMMRecognizer:
     def analyze_segment(self, segment: np.ndarray) -> GestureDecision:
         segment = _as_imu_array(segment)
         filtered = self.filter.apply(segment)
-        features = self.extractor.extract(filtered)
-        if len(features) < 2:
+        # Compute both feature sets for backward compatibility
+        features_v3 = self.extractor.extract(
+            self.preprocessor.apply(filtered))
+        features_v2 = self.extractor.extract(filtered)
+        if len(features_v3) < 2 and len(features_v2) < 2:
             self.last_rejection = None
             return GestureDecision(
                 'rejected', 'segment_too_short', len(segment))
 
         scored = []
         for name, model in self._models.items():
+            # Select features matching the model's training pipeline version
+            version = self._model_versions.get(name, 2)
+            features = features_v3 if version >= 3 else features_v2
+            if len(features) < 2:
+                continue
             bounds = self.sample_length_bounds.get(name)
             duration_penalty = 0.0
             if bounds is not None:
@@ -741,13 +983,40 @@ def _train_gesture(
         window_size: int,
         window_overlap: int) -> hmm.GaussianHMM | None:
     signal_filter = SignalFilter(sample_rate, cutoff_hz)
+    preprocessor = RobustPreprocessor()
     extractor = FeatureExtractor(window_size, window_overlap)
     training_repetitions = _segment_training_repetitions(
         repetitions, sample_rate)
+
+    # --- Data augmentation for orientation & amplitude robustness ---
+    augmented_repetitions = list(training_repetitions)
+    for repetition in training_repetitions:
+        rep_f = repetition.astype(np.float64)
+        # Z-axis rotations (simulates different wearing angles around finger)
+        for angle in (45.0, 90.0, 135.0, 180.0, -45.0, -90.0, -135.0):
+            augmented_repetitions.append(
+                _apply_fixed_rotation(rep_f, angle))
+        # Amplitude scaling (simulates different gesture sizes)
+        for scale in (0.7, 0.85, 1.15, 1.3):
+            augmented_repetitions.append(rep_f * scale)
+        # Combined tilt + rotation
+        augmented_repetitions.append(
+            _augment_tilt(rep_f, max_angle_deg=20.0))
+
+    # Deduplicate while keeping augmented data manageable
+    if len(augmented_repetitions) > len(training_repetitions) * 12:
+        augmented_repetitions = augmented_repetitions[
+            :len(training_repetitions) * 12]
+
     sequences = []
     lengths = []
-    for repetition in training_repetitions:
-        features = extractor.extract(signal_filter.apply(repetition))
+    for repetition in augmented_repetitions:
+        rep_array = np.asarray(repetition, dtype=np.float64)
+        if rep_array.ndim != 2 or rep_array.shape[1] != 6:
+            continue
+        filtered = signal_filter.apply(rep_array)
+        preprocessed = preprocessor.apply(filtered)
+        features = extractor.extract(preprocessed)
         if len(features) < 2:
             continue
         sequences.append(features)
@@ -778,7 +1047,7 @@ def _train_gesture(
         max(8, round(min(raw_lengths) * 0.5)),
         max(12, round(max(raw_lengths) * 1.75)),
     )
-    model.gesture_pipeline_version_ = 2
+    model.gesture_pipeline_version_ = 3
     model.gesture_sample_rate_ = float(sample_rate)
     return model
 

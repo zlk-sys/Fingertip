@@ -9,11 +9,13 @@ from app.hmm_gesture import (
     FeatureExtractor,
     HMMRecognizer,
     MotionSegmenter,
+    RobustPreprocessor,
     SignalFilter,
     load_gesture_data,
     save_gesture,
     train_directory,
 )
+from app.hmm_gesture.core import _apply_fixed_rotation
 
 
 RESOURCE_DIR = Path(__file__).resolve().parents[1] / 'app' / 'hmm_gesture'
@@ -130,6 +132,123 @@ class HMMGestureCoreTest(unittest.TestCase):
             trained_model, 'gesture_acceptance_threshold_'))
         self.assertTrue(np.isfinite(
             trained_model.gesture_acceptance_threshold_))
+
+
+class RobustnessTest(unittest.TestCase):
+    """Verify orientation and amplitude robustness of the v3 pipeline."""
+
+    @classmethod
+    def setUpClass(cls):
+        """Train a model with the new pipeline for robustness tests."""
+        cls._tmpdir = tempfile.TemporaryDirectory(
+            dir=WORKSPACE_DIR, prefix='.hmm-robust-')
+        root = Path(cls._tmpdir.name)
+        cls.data_dir = root / 'data'
+        cls.model_dir = root / 'models'
+        cls.data_dir.mkdir()
+        shutil.copy2(
+            RESOURCE_DIR / 'sample_data' / '打响指-hmm.json',
+            cls.data_dir / '打响指-hmm.json',
+        )
+        train_directory(cls.data_dir, cls.model_dir)
+        cls.recognizer = HMMRecognizer(cls.model_dir)
+        _, _, cls.repetitions = load_gesture_data(
+            cls.data_dir / '打响指-hmm.json')
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmpdir.cleanup()
+
+    def test_new_model_has_pipeline_version_3(self):
+        model = self.recognizer._models['打响指-hmm']
+        self.assertEqual(model.gesture_pipeline_version_, 3)
+
+    def test_recognizes_original_gesture(self):
+        result = self.recognizer.classify_segment(self.repetitions[0])
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0], '打响指-hmm')
+
+    def test_recognizes_rotated_45_degrees(self):
+        rotated = _apply_fixed_rotation(
+            self.repetitions[0].astype(np.float64), 45.0)
+        result = self.recognizer.classify_segment(rotated)
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0], '打响指-hmm')
+
+    def test_recognizes_rotated_90_degrees(self):
+        rotated = _apply_fixed_rotation(
+            self.repetitions[0].astype(np.float64), 90.0)
+        result = self.recognizer.classify_segment(rotated)
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0], '打响指-hmm')
+
+    def test_recognizes_rotated_135_degrees(self):
+        rotated = _apply_fixed_rotation(
+            self.repetitions[0].astype(np.float64), 135.0)
+        result = self.recognizer.classify_segment(rotated)
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0], '打响指-hmm')
+
+    def test_recognizes_rotated_180_degrees(self):
+        rotated = _apply_fixed_rotation(
+            self.repetitions[0].astype(np.float64), 180.0)
+        result = self.recognizer.classify_segment(rotated)
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0], '打响指-hmm')
+
+    def test_recognizes_negative_rotation(self):
+        rotated = _apply_fixed_rotation(
+            self.repetitions[0].astype(np.float64), -90.0)
+        result = self.recognizer.classify_segment(rotated)
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0], '打响指-hmm')
+
+    def test_recognizes_amplitude_scaled_down_0_7(self):
+        scaled = self.repetitions[0].astype(np.float64) * 0.7
+        result = self.recognizer.classify_segment(scaled)
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0], '打响指-hmm')
+
+    def test_recognizes_amplitude_scaled_up_1_3(self):
+        scaled = self.repetitions[0].astype(np.float64) * 1.3
+        result = self.recognizer.classify_segment(scaled)
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0], '打响指-hmm')
+
+    def test_recognizes_combined_rotation_and_scaling(self):
+        transformed = _apply_fixed_rotation(
+            self.repetitions[0].astype(np.float64) * 0.8, 60.0)
+        result = self.recognizer.classify_segment(transformed)
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0], '打响指-hmm')
+
+    def test_preprocessor_output_shape(self):
+        raw = np.random.randn(30, 6) * 1000
+        filtered = SignalFilter().apply(raw)
+        preprocessed = RobustPreprocessor().apply(filtered)
+        self.assertEqual(preprocessed.shape, (30, 6))
+        self.assertTrue(np.isfinite(preprocessed).all())
+
+    def test_preprocessor_amplitude_normalization(self):
+        """Different amplitude inputs should produce similar output RMS."""
+        np.random.seed(42)
+        base = np.random.randn(50, 6) * 1000
+        base[:, 2] += 9800  # add gravity-like offset
+        scaled_07 = base * 0.7
+        scaled_13 = base * 1.3
+
+        prep = RobustPreprocessor()
+        out_base = prep.apply(base)
+        out_07 = prep.apply(scaled_07)
+        out_13 = prep.apply(scaled_13)
+
+        rms_base = np.sqrt(np.mean(out_base ** 2))
+        rms_07 = np.sqrt(np.mean(out_07 ** 2))
+        rms_13 = np.sqrt(np.mean(out_13 ** 2))
+
+        # All outputs should have similar RMS after normalization
+        self.assertAlmostEqual(rms_base, rms_07, delta=rms_base * 0.15)
+        self.assertAlmostEqual(rms_base, rms_13, delta=rms_base * 0.15)
 
 
 if __name__ == '__main__':
