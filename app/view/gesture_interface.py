@@ -203,8 +203,8 @@ class GestureInterface(ScrollArea):
         self.statusCard = SimpleCardWidget(self.view)
         self.statusCard.setBorderRadius(12)
         self.statusCard.setFixedHeight(92)
-        self.statusIcon = IconWidget(FIF.ROBOT, self.statusCard)
-        self.statusIcon.setFixedSize(38, 38)
+        # self.statusIcon = IconWidget(FIF.ROBOT, self.statusCard)
+        # self.statusIcon.setFixedSize(38, 38)
         self.statusLabel = StrongBodyLabel(
             '等待连接戒指', self.statusCard)
         self.statusLabel.setObjectName('gestureStatusLabel')
@@ -218,7 +218,7 @@ class GestureInterface(ScrollArea):
         layout = QHBoxLayout(self.statusCard)
         layout.setContentsMargins(20, 14, 20, 14)
         layout.setSpacing(14)
-        layout.addWidget(self.statusIcon, 0, Qt.AlignVCenter)
+        # layout.addWidget(self.statusIcon, 0, Qt.AlignVCenter)
         textLayout = QVBoxLayout()
         textLayout.setSpacing(3)
         textLayout.addWidget(self.statusLabel)
@@ -239,7 +239,7 @@ class GestureInterface(ScrollArea):
         self.repetitionSpin = SpinBox(self.collectionCard)
         self.repetitionSpin.setRange(2, 20)
         self.repetitionSpin.setValue(5)
-        self.repetitionSpin.setFixedWidth(90)
+        self.repetitionSpin.setFixedWidth(120)
         self.captureSessionBtn = PrimaryPushButton(
             '开始采集流程', self.collectionCard)
         self.captureSessionBtn.setFixedWidth(120)

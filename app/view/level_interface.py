@@ -300,11 +300,11 @@ class LevelInterface(ScrollArea):
         self.vBoxLayout.addSpacing(4)
         self.vBoxLayout.addWidget(self.statusCard)
         self.vBoxLayout.addSpacing(8)
-        self.vBoxLayout.addWidget(self.view3DSection)
-        self.vBoxLayout.addWidget(self.view3DCard)
-        self.vBoxLayout.addSpacing(8)
         self.vBoxLayout.addWidget(self.angleSection)
         self.vBoxLayout.addWidget(self.angleCard)
+        self.vBoxLayout.addSpacing(8)
+        self.vBoxLayout.addWidget(self.view3DSection)
+        self.vBoxLayout.addWidget(self.view3DCard)
 
     def __connectSignals(self):
         self.toggleBtn.toggled.connect(self.__onToggleLevel)
