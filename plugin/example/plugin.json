@@ -1,0 +1,13 @@
+{
+    "id": "example",
+    "name": "示例插件",
+    "description": "这是一个示例插件，演示如何使用戒指按钮事件",
+    "icon": "DEVELOPER_TOOLS",
+    "version": "1.0.0",
+    "author": "Fingertip",
+    "handlers": {
+        "single_press": "on_single_press",
+        "double_press": "on_double_press",
+        "double_tap": "on_double_tap"
+    }
+}

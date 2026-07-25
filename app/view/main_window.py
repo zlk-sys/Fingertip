@@ -22,8 +22,11 @@ from .drawing_interface import DrawingInterface
 from .coding_interface import CodingInterface
 from .collab_interface import CollabInterface
 from .setting_interface import SettingInterface
+from .plugin_interface import PluginInterface
+from .plugin_management_interface import PluginManagementInterface
 from ..common.config import cfg
 from ..common.signal_bus import signalBus
+from ..common.plugin_manager import PluginManager
 
 
 # Mode values
@@ -163,6 +166,21 @@ class MainWindow(FluentWindow):
         self.collabInterface = CollabInterface(self)
         self.settingInterface = SettingInterface(self)
 
+        # Initialize plugin system
+        plugin_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'plugin')
+        self.pluginManager = PluginManager(plugin_dir, self)
+        self.pluginManager.load_plugins()
+        
+        # Create plugin interfaces (only for enabled plugins)
+        enabled_plugins = cfg.get(cfg.enabledPlugins) or []
+        self.pluginInterfaces = {}
+        for plugin_id, plugin_info in self.pluginManager.plugins.items():
+            if plugin_id in enabled_plugins:
+                self.pluginInterfaces[plugin_id] = PluginInterface(plugin_info, self.pluginManager, self)
+        
+        # Plugin management interface
+        self.pluginManagementInterface = PluginManagementInterface(self.pluginManager, self)
+
         # enable acrylic effect on navigation
         self.navigationInterface.setAcrylicEnabled(True)
 
@@ -233,6 +251,15 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.codingInterface, FIF.CODE, self.tr('Coding 模式'))
         self.addSubInterface(self.collabInterface, FIF.CHAT, self.tr('协同模式'))
 
+        # Add plugin interfaces
+        from .plugin_interface import get_icon
+        for plugin_id, plugin_interface in self.pluginInterfaces.items():
+            plugin_info = self.pluginManager.get_plugin(plugin_id)
+            icon = get_icon(plugin_info.icon)
+            self.addSubInterface(plugin_interface, icon, self.tr(plugin_info.name))
+
+        # Plugin management (above connect ring)
+        self.addSubInterface(self.pluginManagementInterface, FIF.APPLICATION, self.tr('插件管理'), NavigationItemPosition.BOTTOM)
 
         # add settings to bottom
         self.addSubInterface(self.connectInterface, FIF.CONNECT, self.tr('连接戒指'), NavigationItemPosition.BOTTOM)

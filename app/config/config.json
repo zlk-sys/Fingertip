@@ -21,6 +21,11 @@
         "Language": "Auto",
         "MicaEnabled": true
     },
+    "Plugins": {
+        "EnabledPlugins": [
+            "example"
+        ]
+    },
     "QFluentWidgets": {
         "FontFamilies": [
             "Segoe UI",
