@@ -63,6 +63,10 @@ class Config(QConfig):
         "Collab", "SystemPrompt",
         "你是一个智能助手，请根据用户的语音转写内容给出简洁、有帮助的回答。请直接回答，不要重复用户的问题。")
 
+    # DeepSeek semantic composition
+    deepSeekApiKey = ConfigItem("DeepSeek", "ApiKey", "")
+    deepSeekModel = ConfigItem("DeepSeek", "Model", "")
+
     # Plugin system
     enabledPlugins = ConfigItem("Plugins", "EnabledPlugins", [])  # List of enabled plugin IDs
 

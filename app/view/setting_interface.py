@@ -153,6 +153,75 @@ class SettingInterface(ScrollArea):
         self._modelLayout.addStretch(1)
         self._modelLayout.addWidget(self.modelEdit)
 
+        # DeepSeek semantic composition
+        self.deepSeekGroup = SettingCardGroup(
+            self.tr('DeepSeek 语义组句'), self.scrollWidget)
+
+        self.deepSeekApiKeyCard = SimpleCardWidget(self.deepSeekGroup)
+        self.deepSeekApiKeyCard.setBorderRadius(8)
+        self.deepSeekApiKeyCard.setFixedHeight(72)
+        deepSeekKeyLayout = QHBoxLayout(self.deepSeekApiKeyCard)
+        deepSeekKeyLayout.setContentsMargins(20, 16, 20, 16)
+        deepSeekKeyLeft = QVBoxLayout()
+        deepSeekKeyLeft.setSpacing(2)
+        deepSeekKeyLabel = BodyLabel(
+            'DeepSeek API Key', self.deepSeekApiKeyCard)
+        deepSeekKeyHint = CaptionLabel(
+            '用于将手势候选词匹配并组合成句子',
+            self.deepSeekApiKeyCard,
+        )
+        deepSeekKeyHint.setTextColor(
+            Qt.gray if isDarkTheme() else QColor(96, 96, 96),
+            QColor(160, 160, 160)
+            if isDarkTheme() else QColor(180, 180, 180),
+        )
+        deepSeekKeyLeft.addWidget(deepSeekKeyLabel)
+        deepSeekKeyLeft.addWidget(deepSeekKeyHint)
+        self.deepSeekApiKeyEdit = LineEdit(self.deepSeekApiKeyCard)
+        self.deepSeekApiKeyEdit.setPlaceholderText(
+            '输入 DeepSeek API Key')
+        self.deepSeekApiKeyEdit.setEchoMode(QLineEdit.Password)
+        self.deepSeekApiKeyEdit.setFixedWidth(280)
+        self.deepSeekApiKeyEdit.setText(
+            cfg.get(cfg.deepSeekApiKey))
+        self.deepSeekApiKeyEdit.textChanged.connect(
+            self.__onDeepSeekApiKeyChanged)
+        deepSeekKeyLayout.addLayout(deepSeekKeyLeft)
+        deepSeekKeyLayout.addStretch(1)
+        deepSeekKeyLayout.addWidget(self.deepSeekApiKeyEdit)
+
+        self.deepSeekModelCard = SimpleCardWidget(self.deepSeekGroup)
+        self.deepSeekModelCard.setBorderRadius(8)
+        self.deepSeekModelCard.setFixedHeight(72)
+        deepSeekModelLayout = QHBoxLayout(self.deepSeekModelCard)
+        deepSeekModelLayout.setContentsMargins(20, 16, 20, 16)
+        deepSeekModelLeft = QVBoxLayout()
+        deepSeekModelLeft.setSpacing(2)
+        deepSeekModelLabel = BodyLabel(
+            'DeepSeek 模型', self.deepSeekModelCard)
+        deepSeekModelHint = CaptionLabel(
+            '用于语义组句的模型名称',
+            self.deepSeekModelCard,
+        )
+        deepSeekModelHint.setTextColor(
+            Qt.gray if isDarkTheme() else QColor(96, 96, 96),
+            QColor(160, 160, 160)
+            if isDarkTheme() else QColor(180, 180, 180),
+        )
+        deepSeekModelLeft.addWidget(deepSeekModelLabel)
+        deepSeekModelLeft.addWidget(deepSeekModelHint)
+        self.deepSeekModelEdit = LineEdit(self.deepSeekModelCard)
+        self.deepSeekModelEdit.setPlaceholderText(
+            'deepseek-v4-flash')
+        self.deepSeekModelEdit.setFixedWidth(280)
+        self.deepSeekModelEdit.setText(
+            cfg.get(cfg.deepSeekModel))
+        self.deepSeekModelEdit.textChanged.connect(
+            self.__onDeepSeekModelChanged)
+        deepSeekModelLayout.addLayout(deepSeekModelLeft)
+        deepSeekModelLayout.addStretch(1)
+        deepSeekModelLayout.addWidget(self.deepSeekModelEdit)
+
         # about
         self.aboutGroup = SettingCardGroup(self.tr('关于'), self.scrollWidget)
         self.helpCard = HyperlinkCard(
@@ -224,10 +293,13 @@ class SettingInterface(ScrollArea):
         self.expandLayout.setContentsMargins(36, 10, 36, 0)
         self.collabGroup.addSettingCard(self.apiKeyCard)
         self.collabGroup.addSettingCard(self.modelCard)
+        self.deepSeekGroup.addSettingCard(self.deepSeekApiKeyCard)
+        self.deepSeekGroup.addSettingCard(self.deepSeekModelCard)
 
         self.expandLayout.addWidget(self.personalGroup)
         self.expandLayout.addWidget(self.materialGroup)
         self.expandLayout.addWidget(self.collabGroup)
+        self.expandLayout.addWidget(self.deepSeekGroup)
         self.expandLayout.addWidget(self.updateSoftwareGroup)
         self.expandLayout.addWidget(self.aboutGroup)
 
@@ -245,6 +317,12 @@ class SettingInterface(ScrollArea):
 
     def __onModelChanged(self, text: str):
         cfg.set(cfg.collabModel, text)
+
+    def __onDeepSeekApiKeyChanged(self, text: str):
+        cfg.set(cfg.deepSeekApiKey, text.strip())
+
+    def __onDeepSeekModelChanged(self, text: str):
+        cfg.set(cfg.deepSeekModel, text.strip())
 
     def __connectSignalToSlot(self):
         """ connect signal to slot """

@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 
 import numpy as np
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QAbstractItemView,
@@ -47,6 +47,12 @@ from ..common.signal_bus import signalBus
 from ..common.style_sheet import StyleSheet
 from ..hmm_gesture import HMMRecognizer, TrainingResult
 from ..hmm_gesture import save_gesture, train_directory
+from ..semantic import (
+    DeepSeekSemanticClient,
+    SemanticBuffer,
+    SemanticServiceError,
+    is_deepseek_configured,
+)
 from ..sdk.ring_sound import (
     TimeoutError as RingTimeoutError,
     start_sensor_report,
@@ -153,6 +159,31 @@ class _TrainingThread(QThread):
             self.error.emit(str(exc))
 
 
+class _SemanticThread(QThread):
+    """Call DeepSeek without blocking BLE processing or the UI thread."""
+
+    completed = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+    def __init__(self, segments, context='', parent=None):
+        super().__init__(parent)
+        self._segments = segments
+        self._context = context
+
+    def run(self):
+        try:
+            result = DeepSeekSemanticClient().compose(
+                self._segments,
+                context=self._context,
+            )
+            self.completed.emit(result)
+        except SemanticServiceError as exc:
+            self.error.emit(str(exc))
+        except Exception as exc:
+            self.error.emit(
+                f'AI 组句发生内部错误（{type(exc).__name__}）')
+
+
 class GestureInterface(ScrollArea):
     """Three-stage HMM workflow adapted to the desktop application."""
 
@@ -175,6 +206,15 @@ class GestureInterface(ScrollArea):
         self._recognition_count = 0
         self._history_lines: list[str] = []
         self._training_thread = None
+        self._semantic_buffer = SemanticBuffer(max_segments=20)
+        self._semantic_thread = None
+        self._semantic_request_revision = -1
+        self._semantic_completed_revision = -1
+        self._semantic_error_revision = -1
+        self._semantic_error_message = ''
+        self._semantic_timer = QTimer(self)
+        self._semantic_timer.setSingleShot(True)
+        self._semantic_timer.setInterval(650)
 
         self._stream = _GestureStreamThread(self)
         self.view = QWidget(self)
@@ -186,6 +226,7 @@ class GestureInterface(ScrollArea):
         self._buildTrainingCard()
         self._buildModelCard()
         self._buildRecognitionCard()
+        self._buildSemanticCard()
         self._initWidget()
         self._connectSignals()
         self._refreshResourceSummary()
@@ -345,6 +386,60 @@ class GestureInterface(ScrollArea):
         layout.addWidget(self.recognitionDiagnosticLabel)
         layout.addWidget(self.historyEdit)
 
+    def _buildSemanticCard(self):
+        self.semanticSection = SubtitleLabel(
+            '5 · AI 语义组句', self.view)
+        self.semanticCard = SimpleCardWidget(self.view)
+        self.semanticCard.setBorderRadius(12)
+        self.semanticCard.setMinimumHeight(330)
+
+        self.semanticCandidatesEdit = TextEdit(self.semanticCard)
+        self.semanticCandidatesEdit.setReadOnly(True)
+        self.semanticCandidatesEdit.setPlaceholderText(
+            '识别到的候选词序列会显示在这里')
+        self.semanticCandidatesEdit.setFixedHeight(78)
+
+        self.semanticContextEdit = LineEdit(self.semanticCard)
+        self.semanticContextEdit.setPlaceholderText(
+            '可选上下文，例如：正在点餐、上一句是“我想要”')
+
+        self.semanticLiveLabel = StrongBodyLabel(
+            '实时翻译已开启', self.semanticCard)
+        self.undoSemanticBtn = PushButton(
+            '撤回末段', self.semanticCard)
+        self.clearSemanticBtn = PushButton(
+            '清空', self.semanticCard)
+
+        self.semanticStatusLabel = CaptionLabel('', self.semanticCard)
+        self.semanticStatusLabel.setTextColor(
+            QColor(96, 96, 96), QColor(180, 180, 180))
+        self.semanticResultEdit = TextEdit(self.semanticCard)
+        self.semanticResultEdit.setReadOnly(True)
+        self.semanticResultEdit.setPlaceholderText(
+            'DeepSeek 会在这里给出最可能的句子、备选句和置信度')
+        self.semanticResultEdit.setFixedHeight(102)
+
+        layout = QVBoxLayout(self.semanticCard)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(9)
+        layout.addWidget(BodyLabel(
+            '有序候选词（仅发送下列识别摘要，不发送原始六轴数据）',
+            self.semanticCard,
+        ))
+        layout.addWidget(self.semanticCandidatesEdit)
+        layout.addWidget(self.semanticContextEdit)
+        controls = QHBoxLayout()
+        controls.setSpacing(8)
+        controls.addWidget(self.semanticLiveLabel)
+        controls.addSpacing(8)
+        controls.addWidget(self.undoSemanticBtn)
+        controls.addWidget(self.clearSemanticBtn)
+        controls.addStretch(1)
+        controls.addWidget(self.semanticStatusLabel)
+        layout.addLayout(controls)
+        layout.addWidget(self.semanticResultEdit)
+        self._refreshSemanticCard()
+
     def _buildModelCard(self):
         self.modelSection = SubtitleLabel(
             '3 · 管理模型', self.view)
@@ -425,6 +520,8 @@ class GestureInterface(ScrollArea):
         self.vBoxLayout.addWidget(self.modelCard)
         self.vBoxLayout.addWidget(self.recognitionSection)
         self.vBoxLayout.addWidget(self.recognitionCard)
+        self.vBoxLayout.addWidget(self.semanticSection)
+        self.vBoxLayout.addWidget(self.semanticCard)
         self.vBoxLayout.setAlignment(Qt.AlignTop)
 
     def _connectSignals(self):
@@ -439,6 +536,10 @@ class GestureInterface(ScrollArea):
         self.modelTable.itemSelectionChanged.connect(
             self._updateModelActions)
         self.recognitionBtn.clicked.connect(self._onRecognition)
+        self.undoSemanticBtn.clicked.connect(self._onUndoSemantic)
+        self.clearSemanticBtn.clicked.connect(self._onClearSemantic)
+        self._semantic_timer.timeout.connect(
+            self._onComposeSemantic)
 
         self._stream.batchReceived.connect(self._onBatch)
         self._stream.startedSuccessfully.connect(self._onStreamStarted)
@@ -448,6 +549,17 @@ class GestureInterface(ScrollArea):
         signalBus.deviceConnected.connect(self._onDeviceConnected)
         signalBus.deviceDisconnected.connect(self._onDeviceDisconnected)
         signalBus.modeStarted.connect(self._onOtherModeStarted)
+
+    def showEvent(self, event):
+        """Resume live translation after returning from the settings page."""
+        super().showEvent(event)
+        self._refreshSemanticCard()
+        if (
+                len(self._semantic_buffer) > 0
+                and is_deepseek_configured()
+                and self._semantic_buffer.revision
+                != self._semantic_request_revision):
+            self._semantic_timer.start()
 
     def _onDeviceConnected(self, name, address):
         self._connected = True
@@ -1020,6 +1132,7 @@ class GestureInterface(ScrollArea):
         candidate = decision.best_candidate
         self.recognitionDiagnosticLabel.setText(
             self._formatRecognitionDiagnostic(decision))
+        self._queueSemanticDecision(decision)
 
         if decision.status == 'confirmed' and candidate is not None:
             self._recognition_count += 1
@@ -1050,6 +1163,130 @@ class GestureInterface(ScrollArea):
             self._history_lines.append(
                 f'{time_text}  未识别（{reason}；'
                 f'最像 {candidate.name} {candidate.confidence:.1%}）')
+
+    def _queueSemanticDecision(self, decision):
+        if not self._semantic_buffer.add_decision(decision):
+            return
+        self._refreshSemanticCard()
+        self._semantic_timer.start()
+
+    def _refreshSemanticCard(self):
+        lines = self._semantic_buffer.summary_lines()
+        self.semanticCandidatesEdit.setPlainText('\n'.join(lines))
+        has_segments = bool(lines)
+        configured = is_deepseek_configured()
+        self.semanticLiveLabel.setText(
+            '实时翻译已开启' if configured else '实时翻译待配置')
+        self.undoSemanticBtn.setEnabled(has_segments)
+        self.clearSemanticBtn.setEnabled(has_segments)
+        if self._semantic_thread is not None:
+            return
+        if not configured:
+            self.semanticStatusLabel.setText(
+                '未配置 DEEPSEEK_API_KEY')
+        elif self._semantic_error_revision == self._semantic_buffer.revision:
+            self.semanticStatusLabel.setText(self._semantic_error_message)
+        elif (
+                self._semantic_completed_revision
+                == self._semantic_buffer.revision):
+            self.semanticStatusLabel.setText('组句完成')
+        elif has_segments:
+            self.semanticStatusLabel.setText(
+                f'等待组句 · {len(lines)} 个片段')
+        else:
+            self.semanticStatusLabel.setText('等待手势候选')
+
+    def _onUndoSemantic(self):
+        self._semantic_timer.stop()
+        if self._semantic_buffer.remove_last():
+            self._refreshSemanticCard()
+
+    def _onClearSemantic(self):
+        self._semantic_timer.stop()
+        self._semantic_buffer.clear()
+        self.semanticResultEdit.clear()
+        self._refreshSemanticCard()
+
+    def _onComposeSemantic(self):
+        if len(self._semantic_buffer) == 0:
+            return
+        if self._semantic_thread is not None:
+            self.semanticStatusLabel.setText('AI 正在组句…')
+            return
+        if not is_deepseek_configured():
+            self.semanticStatusLabel.setText(
+                '未配置 DEEPSEEK_API_KEY')
+            return
+        if (
+                self._semantic_request_revision
+                == self._semantic_buffer.revision):
+            return
+
+        self._semantic_request_revision = self._semantic_buffer.revision
+        self.semanticStatusLabel.setText('DeepSeek 正在组句…')
+        self._semantic_thread = _SemanticThread(
+            self._semantic_buffer.to_payload(),
+            context=self.semanticContextEdit.text().strip(),
+            parent=self,
+        )
+        self._semantic_thread.completed.connect(
+            self._onSemanticCompleted)
+        self._semantic_thread.error.connect(self._onSemanticError)
+        self._semantic_thread.finished.connect(
+            self._onSemanticThreadFinished)
+        self._semantic_thread.start()
+
+    def _onSemanticCompleted(self, result):
+        if (
+                self._semantic_request_revision
+                != self._semantic_buffer.revision):
+            return
+        output = [
+            result.best_sentence,
+            f'整体置信度：{result.overall_confidence:.0%}',
+        ]
+        alternatives = [
+            item for item in result.sentence_candidates
+            if item['text'] != result.best_sentence
+        ]
+        if alternatives:
+            output.append(
+                '备选：' + '；'.join(
+                    f"{item['text']}（{item['confidence']:.0%}）"
+                    for item in alternatives[:3]))
+        if result.needs_confirmation:
+            question = (
+                result.confirmation_question
+                or '当前候选存在歧义，请确认最符合原意的句子。'
+            )
+            output.append(f'需要确认：{question}')
+        selected = [
+            segment['selected'] or '∅'
+            for segment in result.segments
+        ]
+        if selected:
+            output.append('片段选择：' + ' → '.join(selected))
+        self.semanticResultEdit.setPlainText('\n'.join(output))
+        self._semantic_completed_revision = self._semantic_request_revision
+        self.semanticStatusLabel.setText('组句完成')
+
+    def _onSemanticError(self, message):
+        self._semantic_error_revision = self._semantic_request_revision
+        self._semantic_error_message = message
+        self.semanticStatusLabel.setText(message)
+
+    def _onSemanticThreadFinished(self):
+        thread = self.sender()
+        if self._semantic_thread is thread:
+            self._semantic_thread = None
+        if thread is not None:
+            thread.deleteLater()
+        self._refreshSemanticCard()
+        if (
+                len(self._semantic_buffer) > 0
+                and self._semantic_buffer.revision
+                != self._semantic_request_revision):
+            self._semantic_timer.start()
 
     def _onStreamError(self, message):
         self._showError('HMM 手势流程出错', message)
@@ -1125,4 +1362,6 @@ class GestureInterface(ScrollArea):
             self._stream.wait(3000)
         if self._training_thread is not None:
             self._training_thread.wait(5000)
+        if self._semantic_thread is not None:
+            self._semantic_thread.wait(5000)
         event.accept()

@@ -1,6 +1,11 @@
 zj_docs
 *.pyc
 
+# Local secrets (never commit API keys)
+.env
+.env.local
+.env.*.local
+
 # Logs
 *.log
 
