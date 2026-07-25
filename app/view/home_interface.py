@@ -69,7 +69,7 @@ class BannerWidget(QWidget):
         self.setFixedHeight(280)
 
         self.vBoxLayout = QVBoxLayout(self)
-        self.titleLabel = TitleLabel(f'{self.get_time_period()}好，这里是指尖工具箱👋', self)
+        self.titleLabel = TitleLabel(f'{self.get_time_period()}好，这里是Fingertip👋', self)
         self.subtitleLabel = BodyLabel('指尖控万物', self)
         self.connectStatus = AlertBanner(self)
         self.connectStatus.messageLabel.setText('当前尚未连接戒指，快去连接以开启智慧生活')
@@ -188,6 +188,8 @@ class HomeInterface(ScrollArea):
         self.view = QWidget(self)
         self.banner = BannerWidget(self)
         self.vBoxLayout = QVBoxLayout(self.view)
+        self._pluginCards = []  # Store plugin cards for dynamic updates
+        self._allCards = []  # Store all cards (built-in + plugins) with their data
 
         self.__initWidget()
         self.__connectSignals()
@@ -217,30 +219,98 @@ class HomeInterface(ScrollArea):
         self.vBoxLayout.setAlignment(Qt.AlignTop)
 
     def __loadModeCards(self):
-        """ Load mode cards in a compact 3x2 grid """
-        gridWidget = QWidget(self.view)
-        gridLayout = QGridLayout(gridWidget)
-        gridLayout.setSpacing(16)
-        gridLayout.setContentsMargins(36, 0, 36, 0)
+        """ Load mode cards with adaptive last row layout """
+        # Container for all cards
+        self.cardsContainer = QWidget(self.view)
+        self.cardsLayout = QVBoxLayout(self.cardsContainer)
+        self.cardsLayout.setSpacing(16)
+        self.cardsLayout.setContentsMargins(36, 0, 36, 0)
 
-        cards = [
+        # Built-in mode cards data
+        builtInCards = [
             ('演讲模式', '戒指按键控制 PPT 翻页', signalBus.switchToMeeting),
             ('媒体模式', '手势控制视频播放与暂停', signalBus.switchToMultimedia),
             ('指尖实验室', '实时采集传感器数据', signalBus.switchToSensor),
             ('水平仪', '可视化查看设备倾斜角度', signalBus.switchToLevel),
             ('轨迹绘制', '手势在空中绘制轨迹', signalBus.switchToDrawing),
+            ('Coding 模式', '双击戒指快速启动助手', signalBus.switchToCoding),
             ('协同模式', '语音录音转写并 AI 回答', signalBus.switchToCollab),
         ]
 
-        for index, (title, subtitle, signal) in enumerate(cards):
+        for title, subtitle, signal in builtInCards:
             card = ModeCard(title, subtitle, self.view)
             card.clicked.connect(signal.emit)
-            gridLayout.addWidget(card, index // 3, index % 3)
+            self._allCards.append(card)
 
-        self.vBoxLayout.addWidget(gridWidget)
+        self.vBoxLayout.addWidget(self.cardsContainer)
+        self.__rebuildGrid()
 
         moreLabel = CaptionLabel('更多场景开发中', self.view)
         moreLabel.setTextColor(QColor(96, 96, 96), QColor(216, 216, 216))
         moreLabel.setAlignment(Qt.AlignCenter)
         moreLabel.setContentsMargins(36, 4, 36, 0)
         self.vBoxLayout.addWidget(moreLabel)
+
+    def __rebuildGrid(self):
+        """Rebuild the card grid with adaptive last row."""
+        # Clear existing layout
+        while self.cardsLayout.count():
+            item = self.cardsLayout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+            elif item.layout():
+                self.__clearLayout(item.layout())
+
+        total = len(self._allCards)
+        completeRows = total // 3
+        remainder = total % 3
+
+        # Add complete rows (3 cards each)
+        for row in range(completeRows):
+            rowWidget = QWidget(self.cardsContainer)
+            rowLayout = QHBoxLayout(rowWidget)
+            rowLayout.setSpacing(16)
+            rowLayout.setContentsMargins(0, 0, 0, 0)
+            for col in range(3):
+                card = self._allCards[row * 3 + col]
+                rowLayout.addWidget(card)
+            self.cardsLayout.addWidget(rowWidget)
+
+        # Handle last incomplete row with adaptive widths
+        if remainder == 1:
+            # 1 card takes full width
+            rowWidget = QWidget(self.cardsContainer)
+            rowLayout = QHBoxLayout(rowWidget)
+            rowLayout.setSpacing(16)
+            rowLayout.setContentsMargins(0, 0, 0, 0)
+            card = self._allCards[completeRows * 3]
+            rowLayout.addWidget(card)
+            self.cardsLayout.addWidget(rowWidget)
+        elif remainder == 2:
+            # 2 cards each take 50% width
+            rowWidget = QWidget(self.cardsContainer)
+            rowLayout = QHBoxLayout(rowWidget)
+            rowLayout.setSpacing(16)
+            rowLayout.setContentsMargins(0, 0, 0, 0)
+            for i in range(2):
+                card = self._allCards[completeRows * 3 + i]
+                rowLayout.addWidget(card, 1)  # Equal stretch
+            self.cardsLayout.addWidget(rowWidget)
+
+    def __clearLayout(self, layout):
+        """Recursively clear a layout."""
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+            elif item.layout():
+                self.__clearLayout(item.layout())
+
+    def addPluginCard(self, plugin_id: str, name: str, description: str, switch_signal):
+        """Add a plugin card to the home page (adaptive grid layout)."""
+        card = ModeCard(name, description, self.view)
+        card.clicked.connect(lambda: switch_signal.emit(plugin_id))
+        
+        self._allCards.append(card)
+        self._pluginCards.append(card)
+        self.__rebuildGrid()

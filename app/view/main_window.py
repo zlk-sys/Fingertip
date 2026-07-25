@@ -177,6 +177,11 @@ class MainWindow(FluentWindow):
         for plugin_id, plugin_info in self.pluginManager.plugins.items():
             if plugin_id in enabled_plugins:
                 self.pluginInterfaces[plugin_id] = PluginInterface(plugin_info, self.pluginManager, self)
+                # Add plugin card to home page
+                self.homeInterface.addPluginCard(
+                    plugin_id, plugin_info.name, plugin_info.description,
+                    signalBus.switchToPlugin
+                )
         
         # Plugin management interface
         self.pluginManagementInterface = PluginManagementInterface(self.pluginManager, self)
@@ -230,6 +235,9 @@ class MainWindow(FluentWindow):
         signalBus.switchToCollab.connect(
             lambda: self.switchTo(self.collabInterface))
 
+        # Plugin navigation
+        signalBus.switchToPlugin.connect(self.__switchToPlugin)
+
         # Device connect/disconnect for mode probe
         signalBus.deviceConnected.connect(self._onDeviceConnected)
         signalBus.deviceDisconnected.connect(self._onDeviceDisconnected)
@@ -270,7 +278,7 @@ class MainWindow(FluentWindow):
     def initWindow(self):
         self.resize(960, 780)
         self.setMinimumWidth(760)
-        self.setWindowTitle('指尖工具箱')
+        self.setWindowTitle('Fingertip')
 
         # set application logo
         logoPath = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', 'logo.png')
@@ -338,3 +346,8 @@ class MainWindow(FluentWindow):
         self._activeStreamModes.discard(mode)
         if not self._activeStreamModes:
             self.modeProbeThread.set_paused(False)
+
+    def __switchToPlugin(self, plugin_id: str):
+        """Switch to a plugin page."""
+        if plugin_id in self.pluginInterfaces:
+            self.switchTo(self.pluginInterfaces[plugin_id])

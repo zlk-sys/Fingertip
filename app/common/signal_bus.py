@@ -25,6 +25,7 @@ class SignalBus(QObject):
     switchToDrawing = pyqtSignal()
     switchToCoding = pyqtSignal()
     switchToCollab = pyqtSignal()
+    switchToPlugin = pyqtSignal(str)  # plugin_id
 
     # mode mutual exclusion
     # mode id: 'meeting' / 'multimedia' / 'sensor' / 'level' / 'drawing'
