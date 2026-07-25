@@ -137,7 +137,7 @@ class PluginManagementInterface(ScrollArea):
             self.vBoxLayout.addWidget(card)
 
         if not plugins:
-            emptyLabel = CaptionLabel('暂无已安装插件\n\n将插件文件夹放入 plugin/ 目录即可安装', self.view)
+            emptyLabel = CaptionLabel('暂无已安装插件', self.view)
             emptyLabel.setAlignment(Qt.AlignCenter)
             emptyLabel.setTextColor(QColor(96, 96, 96), QColor(180, 180, 180))
             self.vBoxLayout.addWidget(emptyLabel)
@@ -162,7 +162,7 @@ class PluginManagementInterface(ScrollArea):
         if checked:
             InfoBar.success(
                 '插件已开启',
-                '请重启应用以在侧边栏显示插件',
+                '请重启应用以生效',
                 parent=self.window(),
                 duration=4000,
                 position=InfoBarPosition.TOP_RIGHT
@@ -170,7 +170,7 @@ class PluginManagementInterface(ScrollArea):
         else:
             InfoBar.info(
                 '插件已关闭',
-                '请重启应用以从侧边栏移除插件',
+                '请重启应用以生效',
                 parent=self.window(),
                 duration=4000,
                 position=InfoBarPosition.TOP_RIGHT

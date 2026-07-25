@@ -1,0 +1,12 @@
+{
+    "id": "clipboard",
+    "name": "剪贴板助手",
+    "description": "使用戒指控制剪切板",
+    "icon": "COPY",
+    "version": "1.0.0",
+    "author": "ChenMo",
+    "handlers": {
+        "single_press": "on_single_press",
+        "double_press": "on_double_press"
+    }
+}

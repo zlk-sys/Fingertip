@@ -1,0 +1,12 @@
+{
+    "id": "window",
+    "name": "老板键",
+    "description": "老板来了不要慌，Fingertip来救场",
+    "icon": "BACK_TO_WINDOW",
+    "version": "1.0.0",
+    "author": "Fingertip",
+    "handlers": {
+        "single_press": "on_single_press",
+        "double_press": "on_double_press"
+    }
+}

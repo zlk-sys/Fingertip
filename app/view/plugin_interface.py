@@ -246,25 +246,30 @@ class PluginInterface(ScrollArea):
         StyleSheet.MEETING_INTERFACE.apply(self)
 
         self.vBoxLayout.setContentsMargins(36, 24, 36, 36)
-        self.vBoxLayout.setSpacing(20)
-        self.vBoxLayout.setAlignment(Qt.AlignTop)
+        self.vBoxLayout.setSpacing(0)
 
         self.vBoxLayout.addWidget(self.titleLabel)
-        self.vBoxLayout.addWidget(self.subtitleLabel)
         self.vBoxLayout.addSpacing(4)
+        self.vBoxLayout.addWidget(self.subtitleLabel)
+        self.vBoxLayout.addSpacing(16)
         self.vBoxLayout.addWidget(self.statusCard)
 
         if 'double_tap' in self.plugin_info.handlers:
-            self.vBoxLayout.addSpacing(8)
+            self.vBoxLayout.addSpacing(20)
             self.vBoxLayout.addWidget(self.settingsSection)
+            self.vBoxLayout.addSpacing(8)
             self.vBoxLayout.addWidget(self.settingsCard)
 
-        self.vBoxLayout.addSpacing(8)
+        self.vBoxLayout.addSpacing(20)
         self.vBoxLayout.addWidget(self.instructionSection)
+        self.vBoxLayout.addSpacing(8)
 
         # Add instruction cards after the section title
         for card in self._instructionCards:
             self.vBoxLayout.addWidget(card)
+            self.vBoxLayout.addSpacing(8)
+
+        self.vBoxLayout.addStretch(1)
 
         # Signals
         self.toggleBtn.toggled.connect(self.__onToggleMode)

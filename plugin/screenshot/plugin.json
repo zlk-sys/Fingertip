@@ -1,0 +1,12 @@
+{
+    "id": "screenshot",
+    "name": "快捷截图",
+    "description": "单击全屏截图，双击区域截图",
+    "icon": "CAMERA",
+    "version": "1.0.0",
+    "author": "Fingertip",
+    "handlers": {
+        "single_press": "on_single_press",
+        "double_press": "on_double_press"
+    }
+}

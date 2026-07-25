@@ -1,0 +1,12 @@
+{
+    "id": "launcher",
+    "name": "快捷启动",
+    "description": "双击打开任务视图，单击打开运行对话框",
+    "icon": "PLAY",
+    "version": "1.0.0",
+    "author": "Fingertip",
+    "handlers": {
+        "single_press": "on_single_press",
+        "double_press": "on_double_press"
+    }
+}

@@ -1,0 +1,11 @@
+{
+    "id": "mute",
+    "name": "一键静音",
+    "description": "单击切换系统静音状态",
+    "icon": "VOLUME",
+    "version": "1.0.0",
+    "author": "Fingertip",
+    "handlers": {
+        "single_press": "on_single_press"
+    }
+}

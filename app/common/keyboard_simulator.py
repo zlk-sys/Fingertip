@@ -31,8 +31,10 @@ __all__ = [
     "next_track",
     "previous_track",
     "press_key",
+    "hotkey",
     "send_text",
     "press_enter",
+    "press_mute",
     "is_available",
     "get_backend",
     "KeyNotSupportedError",
@@ -61,9 +63,45 @@ _KEYEVENTF_UNICODE = 0x0004
 _VK_LEFT = 0x25
 _VK_RIGHT = 0x27
 _VK_RETURN = 0x0D
+_VK_ESCAPE = 0x1B
+_VK_TAB = 0x09
+_VK_SPACE = 0x20
+_VK_BACK = 0x08
+_VK_DELETE = 0x2E
 _VK_MEDIA_PLAY_PAUSE = 0xB3
 _VK_MEDIA_NEXT_TRACK = 0xB0
 _VK_MEDIA_PREV_TRACK = 0xB1
+_VK_VOLUME_MUTE = 0xAD
+_VK_VOLUME_UP = 0xAF
+_VK_VOLUME_DOWN = 0xAE
+
+# Named key -> VK code mapping (Windows)
+_VK_MAP = {
+    'ctrl': 0x11, 'control': 0x11,
+    'alt': 0x12,
+    'shift': 0x10,
+    'win': 0x5B, 'super': 0x5B,
+    'tab': 0x09,
+    'enter': 0x0D, 'return': 0x0D,
+    'escape': 0x1B, 'esc': 0x1B,
+    'space': 0x20,
+    'backspace': 0x08,
+    'delete': 0x2E,
+    'up': 0x26, 'down': 0x28, 'left': 0x25, 'right': 0x27,
+    'f1': 0x70, 'f2': 0x71, 'f3': 0x72, 'f4': 0x73,
+    'f5': 0x74, 'f6': 0x75, 'f7': 0x76, 'f8': 0x77,
+    'f9': 0x78, 'f10': 0x79, 'f11': 0x7A, 'f12': 0x7B,
+    'a': 0x41, 'b': 0x42, 'c': 0x43, 'd': 0x44,
+    'e': 0x45, 'f': 0x46, 'g': 0x47, 'h': 0x48,
+    'i': 0x49, 'j': 0x4A, 'k': 0x4B, 'l': 0x4C,
+    'm': 0x4D, 'n': 0x4E, 'o': 0x4F, 'p': 0x50,
+    'q': 0x51, 'r': 0x52, 's': 0x53, 't': 0x54,
+    'u': 0x55, 'v': 0x56, 'w': 0x57, 'x': 0x58,
+    'y': 0x59, 'z': 0x5A,
+    '0': 0x30, '1': 0x31, '2': 0x32, '3': 0x33,
+    '4': 0x34, '5': 0x35, '6': 0x36, '7': 0x37,
+    '8': 0x38, '9': 0x39,
+}
 
 _windows_send_input = None
 _windows_import_error: Optional[Exception] = None
@@ -167,6 +205,38 @@ def _press_windows_unicode(char: str) -> None:
     events[1].union.ki.dwExtraInfo = 0
 
     _windows_send_input(2, events, ctypes.sizeof(_INPUT))
+
+
+def _key_down_windows_vk(vk_code: int) -> None:
+    """Inject a key down event via Win32 SendInput."""
+    if _windows_send_input is None:
+        raise KeyNotSupportedError("Windows SendInput unavailable")
+
+    import ctypes
+    event = (_INPUT * 1)()
+    event[0].type = _INPUT_KEYBOARD
+    event[0].union.ki.wVk = vk_code
+    event[0].union.ki.wScan = 0
+    event[0].union.ki.dwFlags = 0
+    event[0].union.ki.time = 0
+    event[0].union.ki.dwExtraInfo = 0
+    _windows_send_input(1, event, ctypes.sizeof(_INPUT))
+
+
+def _key_up_windows_vk(vk_code: int) -> None:
+    """Inject a key up event via Win32 SendInput."""
+    if _windows_send_input is None:
+        raise KeyNotSupportedError("Windows SendInput unavailable")
+
+    import ctypes
+    event = (_INPUT * 1)()
+    event[0].type = _INPUT_KEYBOARD
+    event[0].union.ki.wVk = vk_code
+    event[0].union.ki.wScan = 0
+    event[0].union.ki.dwFlags = _KEYEVENTF_KEYUP
+    event[0].union.ki.time = 0
+    event[0].union.ki.dwExtraInfo = 0
+    _windows_send_input(1, event, ctypes.sizeof(_INPUT))
 
 
 # ---------------------------------------------------------------------------
@@ -342,3 +412,51 @@ def press_enter() -> None:
         _press_windows_vk(_VK_RETURN)
     else:
         _press_xdotool("Return")
+
+
+def press_mute() -> None:
+    """Send Volume Mute media key to toggle system mute."""
+    if _IS_WINDOWS:
+        _press_windows_vk(_VK_VOLUME_MUTE)
+    else:
+        _press_xdotool("XF86AudioMute")
+
+
+def hotkey(*keys: str) -> None:
+    """Press a combination of keys simultaneously.
+
+    Args:
+        keys: Key names in order. Modifier keys (ctrl, alt, shift, win) are
+              held down, the last key is pressed, then modifiers are released.
+              Examples: hotkey('ctrl', 'c'), hotkey('win', 'd'),
+                        hotkey('ctrl', 'shift', 's')
+
+    On Linux/macOS, falls back to xdotool key combination.
+    """
+    if not keys:
+        return
+
+    if _IS_WINDOWS:
+        import time
+        vk_codes = []
+        for k in keys:
+            k_lower = k.lower()
+            if k_lower in _VK_MAP:
+                vk_codes.append(_VK_MAP[k_lower])
+            else:
+                raise KeyNotSupportedError(f"Unknown key name: {k!r}")
+
+        # Press all keys down in order
+        for vk in vk_codes:
+            _key_down_windows_vk(vk)
+            time.sleep(0.02)
+
+        # Release all keys in reverse order
+        for vk in reversed(vk_codes):
+            _key_up_windows_vk(vk)
+            time.sleep(0.02)
+    else:
+        # xdotool: combine keys with '+'
+        key_names = [k.lower() for k in keys]
+        combo = '+'.join(key_names)
+        _press_xdotool(combo)
