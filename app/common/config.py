@@ -70,6 +70,9 @@ class Config(QConfig):
     # Plugin system
     enabledPlugins = ConfigItem("Plugins", "EnabledPlugins", [])  # List of enabled plugin IDs
 
+    # Gesture-key mapping
+    gestureKeyMappings = ConfigItem("Gesture", "KeyMappings", {})
+
 
 YEAR = 2026
 AUTHOR = "Fingertip"

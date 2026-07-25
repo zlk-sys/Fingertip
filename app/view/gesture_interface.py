@@ -1141,6 +1141,7 @@ class GestureInterface(ScrollArea):
             self._history_lines.append(
                 f'{time_text}  {candidate.name}  '
                 f'已确认 {candidate.confidence:.1%}')
+            self._executeGestureShortcut(candidate.name)
             return
 
         if decision.status == 'tentative' and candidate is not None:
@@ -1287,6 +1288,20 @@ class GestureInterface(ScrollArea):
                 and self._semantic_buffer.revision
                 != self._semantic_request_revision):
             self._semantic_timer.start()
+
+    def _executeGestureShortcut(self, gesture_name: str):
+        """查找并执行手势对应的快捷键映射"""
+        from ..common.config import cfg
+        from ..common import keyboard_simulator
+        mappings = cfg.get(cfg.gestureKeyMappings) or {}
+        keys = mappings.get(gesture_name)
+        if keys:
+            try:
+                keyboard_simulator.hotkey(*keys)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    f'手势快捷键执行失败: {gesture_name} -> {keys}: {e}')
 
     def _onStreamError(self, message):
         self._showError('HMM 手势流程出错', message)
