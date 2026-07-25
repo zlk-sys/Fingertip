@@ -1,0 +1,20 @@
+GestureMappingInterface, #view {
+    background-color: transparent;
+}
+
+QScrollArea {
+    background-color: transparent;
+    border: none;
+}
+
+#keyDisplayLabel {
+    font-size: 28px;
+    font-weight: bold;
+    color: #4da3ff;
+    padding: 16px;
+}
+
+#emptyHintLabel {
+    color: #8a8a8a;
+    font-size: 14px;
+}

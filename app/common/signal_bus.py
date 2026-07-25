@@ -26,6 +26,7 @@ class SignalBus(QObject):
     switchToGesture = pyqtSignal()
     switchToCoding = pyqtSignal()
     switchToCollab = pyqtSignal()
+    switchToGestureMapping = pyqtSignal()
     switchToPlugin = pyqtSignal(str)  # plugin_id
 
     # mode mutual exclusion

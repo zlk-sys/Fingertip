@@ -19,6 +19,7 @@ class StyleSheet(StyleSheetBase, Enum):
     HMM_GESTURE_INTERFACE = "gesture_interface"
     CODING_INTERFACE = "coding_interface"
     COLLAB_INTERFACE = "collab_interface"
+    GESTURE_MAPPING_INTERFACE = "gesture_mapping_interface"
 
     def path(self, theme=Theme.AUTO):
         theme = qconfig.theme if theme == Theme.AUTO else theme
