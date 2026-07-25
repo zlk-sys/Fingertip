@@ -232,7 +232,7 @@ class GestureInterface(ScrollArea):
         self._refreshResourceSummary()
 
     def _buildHeader(self):
-        self.titleLabel = TitleLabel('HMM 手势实验室', self.view)
+        self.titleLabel = TitleLabel('手语实验室（Beta）', self.view)
         self.subtitleLabel = CaptionLabel(
             '按照「采集 → 训练 → 识别」流程创建并实时使用戒指手势模型',
             self.view,
@@ -1304,7 +1304,7 @@ class GestureInterface(ScrollArea):
                     f'手势快捷键执行失败: {gesture_name} -> {keys}: {e}')
 
     def _onStreamError(self, message):
-        self._showError('HMM 手势流程出错', message)
+        self._showError('手语实验室流程出错', message)
 
     def _onStreamStopped(self):
         was_active = self._active
@@ -1337,7 +1337,7 @@ class GestureInterface(ScrollArea):
             return
         self._stream.stop_stream(send_stop=mode not in _STREAM_MODES)
         InfoBar.info(
-            'HMM 手势流程已停止',
+            '手语实验室流程已停止',
             '已切换到其他传感器功能',
             parent=self.window(), duration=2200,
             position=InfoBarPosition.TOP_RIGHT,

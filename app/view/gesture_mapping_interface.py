@@ -256,7 +256,7 @@ class GestureMappingInterface(ScrollArea):
             2, QHeaderView.ResizeToContents)
 
         self.emptyHintLabel = QLabel(
-            '暂无已训练的手势模型，请先在「HMM 手势」页面完成训练',
+            '暂无已训练的手势模型，请先在「手语实验室（Beta）」页面完成训练',
             self.tableCard,
         )
         self.emptyHintLabel.setObjectName('emptyHintLabel')

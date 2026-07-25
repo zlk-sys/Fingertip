@@ -267,7 +267,7 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.sensorInterface, FIF.MOVE, self.tr('指尖实验室'))
         self.addSubInterface(self.levelInterface, FIF.ROTATE, self.tr('水平仪'))
         self.addSubInterface(self.drawingInterface, FIF.PENCIL_INK, self.tr('轨迹绘制'))
-        self.addSubInterface(self.gestureInterface, FIF.ROBOT, self.tr('HMM 手势'))
+        self.addSubInterface(self.gestureInterface, FIF.ROBOT, self.tr('手语实验室（Beta）'))
         self.addSubInterface(self.gestureMappingInterface, FIF.LABEL, self.tr('手势映射'))
         self.addSubInterface(self.codingInterface, FIF.CODE, self.tr('Coding 模式'))
         self.addSubInterface(self.collabInterface, FIF.CHAT, self.tr('协同模式'))
