@@ -478,6 +478,13 @@ class CollabInterface(ScrollArea):
         if not self._active:
             return
 
+        # Bring window to front and switch to collab page
+        window = self.window()
+        if window:
+            window.activateWindow()
+            window.raise_()
+        signalBus.switchToCollab.emit()
+
         self._removeStatusBubble()
         self.statusLabel.setText('协同模式 - 正在识别语音...')
         self._addThinking('正在语音识别...')
