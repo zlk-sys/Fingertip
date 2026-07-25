@@ -20,6 +20,11 @@ from hmmlearn import hmm
 from scipy.signal import butter, medfilt, sosfilt
 
 
+# Current feature-pipeline version.  Bump whenever preprocessing or feature
+# extraction changes so stale models can be detected and retrained once.
+_PIPELINE_VERSION = 3
+
+
 class SignalFilter:
     """Median filter followed by a second-order Butterworth low-pass."""
 
@@ -813,6 +818,7 @@ class HMMRecognizer:
 class TrainingResult:
     trained: tuple[str, ...]
     failed: tuple[str, ...]
+    skipped: tuple[str, ...] = ()
 
 
 def _as_imu_array(data: np.ndarray | Sequence[Sequence[int]]) -> np.ndarray:
@@ -1047,9 +1053,31 @@ def _train_gesture(
         max(8, round(min(raw_lengths) * 0.5)),
         max(12, round(max(raw_lengths) * 1.75)),
     )
-    model.gesture_pipeline_version_ = 3
+    model.gesture_pipeline_version_ = _PIPELINE_VERSION
     model.gesture_sample_rate_ = float(sample_rate)
     return model
+
+
+def _model_needs_retrain(data_path: Path, model_path: Path) -> bool:
+    """Return True when the stored model is missing, outdated or corrupt.
+
+    A model is retrained only when:
+    - the ``.pkl`` file does not exist yet, or
+    - the JSON recording is newer than the model (re-recorded data), or
+    - the model was trained with an older feature-pipeline version, or
+    - the model file cannot be loaded.
+    """
+    if not model_path.exists():
+        return True
+    if data_path.stat().st_mtime > model_path.stat().st_mtime:
+        return True
+    try:
+        with model_path.open('rb') as file:
+            model = pickle.load(file)
+    except Exception:
+        return True
+    version = int(getattr(model, 'gesture_pipeline_version_', 2))
+    return version < _PIPELINE_VERSION
 
 
 def train_directory(
@@ -1060,8 +1088,14 @@ def train_directory(
         cutoff_hz: float = 10.0,
         window_size: int = 8,
         window_overlap: int = 4,
+        force: bool = False,
         progress: Callable[[str], None] | None = None) -> TrainingResult:
-    """Train every gesture JSON in ``data_dir`` into ``output_dir``."""
+    """Train gesture JSONs in ``data_dir`` into ``output_dir``.
+
+    Already-trained gestures are skipped unless their JSON data is newer
+    than the stored model, the model uses an outdated feature pipeline,
+    or ``force`` is set.
+    """
     source = Path(data_dir)
     target = Path(output_dir)
     files = sorted(source.glob('*.json')) if source.exists() else []
@@ -1071,9 +1105,16 @@ def train_directory(
 
     trained = []
     failed = []
+    skipped = []
     for path in files:
         try:
             name, sample_rate, repetitions = load_gesture_data(path)
+            destination = target / f'{path.stem}.pkl'
+            if not force and not _model_needs_retrain(path, destination):
+                skipped.append(name)
+                if progress:
+                    progress(f'「{name}」模型已是最新，跳过训练')
+                continue
             if progress:
                 progress(f'正在训练「{name}」：{len(repetitions)} 次录制')
             model = _train_gesture(
@@ -1089,7 +1130,6 @@ def train_directory(
                 if progress:
                     progress(f'跳过「{name}」：有效录制不足')
                 continue
-            destination = target / f'{path.stem}.pkl'
             temporary = destination.with_suffix('.pkl.tmp')
             with temporary.open('wb') as file:
                 pickle.dump(model, file)
@@ -1101,4 +1141,4 @@ def train_directory(
             failed.append(path.stem)
             if progress:
                 progress(f'训练「{path.stem}」失败：{exc}')
-    return TrainingResult(tuple(trained), tuple(failed))
+    return TrainingResult(tuple(trained), tuple(failed), tuple(skipped))

@@ -1,3 +1,4 @@
+import os
 import shutil
 import tempfile
 import unittest
@@ -132,6 +133,73 @@ class HMMGestureCoreTest(unittest.TestCase):
             trained_model, 'gesture_acceptance_threshold_'))
         self.assertTrue(np.isfinite(
             trained_model.gesture_acceptance_threshold_))
+
+    def test_train_directory_skips_up_to_date_models(self):
+        with tempfile.TemporaryDirectory(
+                dir=WORKSPACE_DIR, prefix='.hmm-test-') as directory:
+            root = Path(directory)
+            data_dir = root / 'data'
+            model_dir = root / 'models'
+            data_dir.mkdir()
+            shutil.copy2(
+                RESOURCE_DIR / 'sample_data' / '打响指-hmm.json',
+                data_dir / '打响指-hmm.json',
+            )
+
+            first = train_directory(data_dir, model_dir)
+            model_path = model_dir / '打响指-hmm.pkl'
+            mtime_before = model_path.stat().st_mtime_ns
+            second = train_directory(data_dir, model_dir)
+            mtime_after = model_path.stat().st_mtime_ns
+
+        self.assertEqual(first.trained, ('打响指-hmm',))
+        self.assertEqual(first.skipped, ())
+        self.assertEqual(second.trained, ())
+        self.assertEqual(second.skipped, ('打响指-hmm',))
+        self.assertFalse(second.failed)
+        self.assertEqual(mtime_before, mtime_after)
+
+    def test_train_directory_retrains_when_data_newer(self):
+        with tempfile.TemporaryDirectory(
+                dir=WORKSPACE_DIR, prefix='.hmm-test-') as directory:
+            root = Path(directory)
+            data_dir = root / 'data'
+            model_dir = root / 'models'
+            data_dir.mkdir()
+            data_path = data_dir / '打响指-hmm.json'
+            shutil.copy2(
+                RESOURCE_DIR / 'sample_data' / '打响指-hmm.json',
+                data_path,
+            )
+
+            train_directory(data_dir, model_dir)
+            model_mtime = (model_dir / '打响指-hmm.pkl').stat().st_mtime
+            future = model_mtime + 10
+            os.utime(data_path, (future, future))
+            second = train_directory(data_dir, model_dir)
+
+        self.assertEqual(second.trained, ('打响指-hmm',))
+        self.assertEqual(second.skipped, ())
+        self.assertFalse(second.failed)
+
+    def test_train_directory_force_retrains_up_to_date_models(self):
+        with tempfile.TemporaryDirectory(
+                dir=WORKSPACE_DIR, prefix='.hmm-test-') as directory:
+            root = Path(directory)
+            data_dir = root / 'data'
+            model_dir = root / 'models'
+            data_dir.mkdir()
+            shutil.copy2(
+                RESOURCE_DIR / 'sample_data' / '打响指-hmm.json',
+                data_dir / '打响指-hmm.json',
+            )
+
+            train_directory(data_dir, model_dir)
+            second = train_directory(data_dir, model_dir, force=True)
+
+        self.assertEqual(second.trained, ('打响指-hmm',))
+        self.assertEqual(second.skipped, ())
+        self.assertFalse(second.failed)
 
 
 class RobustnessTest(unittest.TestCase):

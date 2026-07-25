@@ -593,12 +593,22 @@ class GestureInterface(ScrollArea):
         self._refreshResourceSummary()
         trained = '、'.join(result.trained) or '无'
         failed = '、'.join(result.failed)
+        skipped_text = (
+            f'；已是最新跳过 {len(result.skipped)} 个'
+            if result.skipped else '')
         self.trainingStatusLabel.setText(
             f'训练完成：{trained}'
+            + skipped_text
             + (f'；失败：{failed}' if failed else ''))
+        if result.trained:
+            message = f'成功训练 {len(result.trained)} 个模型'
+        elif result.skipped:
+            message = '所有模型均已是最新，无需重复训练'
+        else:
+            message = '没有模型被训练'
         InfoBar.success(
             '模型训练完成',
-            f'成功训练 {len(result.trained)} 个模型',
+            message,
             parent=self.window(), duration=3500,
             position=InfoBarPosition.TOP_RIGHT,
         )
