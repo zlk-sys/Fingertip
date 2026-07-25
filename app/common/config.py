@@ -1,4 +1,5 @@
 # coding: utf-8
+import os
 import sys
 from enum import Enum
 
@@ -72,6 +73,12 @@ VERSION = __version__
 HELP_URL = "https://qfluentwidgets.com"
 FEEDBACK_URL = "https://github.com/zhiyiYo/PyQt-Fluent-Widgets/issues"
 
+# Config file path: %LOCALAPPDATA%\Fingertip\config.json
+_localAppData = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+_configDir = os.path.join(_localAppData, 'Fingertip')
+os.makedirs(_configDir, exist_ok=True)
+CONFIG_FILE_PATH = os.path.join(_configDir, 'config.json')
+
 cfg = Config()
 cfg.themeMode.value = Theme.AUTO
-qconfig.load('app/config/config.json', cfg)
+qconfig.load(CONFIG_FILE_PATH, cfg)

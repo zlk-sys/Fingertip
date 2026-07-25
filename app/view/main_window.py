@@ -167,7 +167,10 @@ class MainWindow(FluentWindow):
         self.settingInterface = SettingInterface(self)
 
         # Initialize plugin system
-        plugin_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'plugin')
+        # Use %LOCALAPPDATA%/Fingertip/plugin/ as the plugin directory
+        localAppData = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+        plugin_dir = os.path.join(localAppData, 'Fingertip', 'plugin')
+        os.makedirs(plugin_dir, exist_ok=True)
         self.pluginManager = PluginManager(plugin_dir, self)
         self.pluginManager.load_plugins()
         

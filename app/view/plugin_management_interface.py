@@ -1,14 +1,18 @@
 # coding: utf-8
 """Plugin management interface - shows all available plugins with controls."""
 
+import os
+import shutil
+import tempfile
+import zipfile
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFileDialog
 
 from qfluentwidgets import (ScrollArea, TitleLabel, BodyLabel, StrongBodyLabel,
                             CaptionLabel, SimpleCardWidget, IconWidget,
                             SwitchButton, ToolTipFilter, InfoBar, InfoBarPosition,
-                            qconfig)
+                            PushButton, qconfig)
 from qfluentwidgets import FluentIcon as FIF
 
 from ..common.style_sheet import StyleSheet
@@ -84,6 +88,10 @@ class PluginManagementInterface(ScrollArea):
         self.titleLabel = TitleLabel('插件管理', self.view)
         self.subtitleLabel = BodyLabel('管理已安装的插件，开启后插件将显示在侧边栏', self.view)
 
+        # Import button
+        self.importBtn = PushButton(FIF.DOWNLOAD, '导入插件', self.view)
+        self.importBtn.clicked.connect(self.__importPlugin)
+
         # Plugin list section
         self.pluginCountLabel = CaptionLabel('', self.view)
         self.pluginCountLabel.setTextColor(QColor(96, 96, 96), QColor(180, 180, 180))
@@ -109,6 +117,7 @@ class PluginManagementInterface(ScrollArea):
         self.vBoxLayout.addWidget(self.titleLabel)
         self.vBoxLayout.addWidget(self.subtitleLabel)
         self.vBoxLayout.addSpacing(4)
+        self.vBoxLayout.addWidget(self.importBtn)
         self.vBoxLayout.addWidget(self.pluginCountLabel)
 
     def __loadPlugins(self):
@@ -162,6 +171,106 @@ class PluginManagementInterface(ScrollArea):
             InfoBar.info(
                 '插件已关闭',
                 '请重启应用以从侧边栏移除插件',
+                parent=self.window(),
+                duration=4000,
+                position=InfoBarPosition.TOP_RIGHT
+            )
+
+    def __importPlugin(self):
+        """Import a plugin from a .zip file."""
+        # Open file dialog to select .zip file
+        zipPath, _ = QFileDialog.getOpenFileName(
+            self.window(),
+            '选择插件压缩包',
+            '',
+            'Zip Files (*.zip);;All Files (*)'
+        )
+        
+        if not zipPath:
+            return
+
+        try:
+            # Get target directory: %LOCALAPPDATA%/Fingertip/plugin/
+            localAppData = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+            fingertipDir = os.path.join(localAppData, 'Fingertip')
+            pluginDir = os.path.join(fingertipDir, 'plugin')
+            
+            # Ensure directories exist
+            os.makedirs(pluginDir, exist_ok=True)
+            
+            # Extract to temp directory first
+            with tempfile.TemporaryDirectory() as tempDir:
+                with zipfile.ZipFile(zipPath, 'r') as zipRef:
+                    zipRef.extractall(tempDir)
+                
+                # Find the plugin folder (should be the only top-level folder)
+                extractedItems = os.listdir(tempDir)
+                
+                if len(extractedItems) != 1:
+                    InfoBar.error(
+                        '导入失败',
+                        '压缩包格式错误：应包含且仅包含一个插件文件夹',
+                        parent=self.window(),
+                        duration=4000,
+                        position=InfoBarPosition.TOP_RIGHT
+                    )
+                    return
+                
+                pluginFolderName = extractedItems[0]
+                extractedPluginPath = os.path.join(tempDir, pluginFolderName)
+                
+                if not os.path.isdir(extractedPluginPath):
+                    InfoBar.error(
+                        '导入失败',
+                        '压缩包格式错误：顶层应为插件文件夹',
+                        parent=self.window(),
+                        duration=4000,
+                        position=InfoBarPosition.TOP_RIGHT
+                    )
+                    return
+                
+                # Check if plugin.json exists
+                pluginJsonPath = os.path.join(extractedPluginPath, 'plugin.json')
+                if not os.path.exists(pluginJsonPath):
+                    InfoBar.error(
+                        '导入失败',
+                        '插件文件夹中未找到 plugin.json',
+                        parent=self.window(),
+                        duration=4000,
+                        position=InfoBarPosition.TOP_RIGHT
+                    )
+                    return
+                
+                # Target path for the plugin
+                targetPluginPath = os.path.join(pluginDir, pluginFolderName)
+                
+                # Remove existing plugin if exists
+                if os.path.exists(targetPluginPath):
+                    shutil.rmtree(targetPluginPath)
+                
+                # Move plugin to target directory
+                shutil.move(extractedPluginPath, targetPluginPath)
+            
+            InfoBar.success(
+                '导入成功',
+                f'插件 {pluginFolderName} 已安装，请重启应用以启用',
+                parent=self.window(),
+                duration=4000,
+                position=InfoBarPosition.TOP_RIGHT
+            )
+            
+        except zipfile.BadZipFile:
+            InfoBar.error(
+                '导入失败',
+                '无效的 ZIP 文件',
+                parent=self.window(),
+                duration=4000,
+                position=InfoBarPosition.TOP_RIGHT
+            )
+        except Exception as e:
+            InfoBar.error(
+                '导入失败',
+                f'发生错误: {str(e)}',
                 parent=self.window(),
                 duration=4000,
                 position=InfoBarPosition.TOP_RIGHT
