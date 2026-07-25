@@ -3,7 +3,7 @@ from datetime import datetime
 
 from PyQt5.QtCore import Qt, QRectF, pyqtSignal
 from PyQt5.QtGui import QPixmap, QPainter, QColor, QBrush, QPainterPath, QLinearGradient
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QFrame
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QFrame, QSizePolicy
 
 from qfluentwidgets import (ScrollArea, isDarkTheme, FluentIcon, PushButton,
                             TitleLabel, BodyLabel, StrongBodyLabel, CaptionLabel,
@@ -166,8 +166,10 @@ class ModeCard(SimpleCardWidget):
         self.setObjectName('modeCard')
         self.setFixedHeight(80)
         self.setCursor(Qt.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
 
         self.subtitleLabel.setTextColor(QColor(96, 96, 96), QColor(216, 216, 216))
+        self.subtitleLabel.setWordWrap(True)
 
         self.vBoxLayout.setContentsMargins(18, 0, 18, 0)
         self.vBoxLayout.setSpacing(4)
@@ -273,7 +275,7 @@ class HomeInterface(ScrollArea):
             rowLayout.setContentsMargins(0, 0, 0, 0)
             for col in range(3):
                 card = self._allCards[row * 3 + col]
-                rowLayout.addWidget(card)
+                rowLayout.addWidget(card, 1)
             self.cardsLayout.addWidget(rowWidget)
 
         # Handle last incomplete row with adaptive widths
@@ -284,7 +286,7 @@ class HomeInterface(ScrollArea):
             rowLayout.setSpacing(16)
             rowLayout.setContentsMargins(0, 0, 0, 0)
             card = self._allCards[completeRows * 3]
-            rowLayout.addWidget(card)
+            rowLayout.addWidget(card, 1)
             self.cardsLayout.addWidget(rowWidget)
         elif remainder == 2:
             # 2 cards each take 50% width
